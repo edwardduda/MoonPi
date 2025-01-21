@@ -12,10 +12,10 @@ class Config:
         'EPISODES' : 5000,
         'BATCH_SIZE' : 128,
         'BUFFER_SIZE' : 150000,
-        'MIN_REPLAY_SIZE' : 80000,
+        'MIN_REPLAY_SIZE' : 90000,
         'LEARNING_RATE' : 1e-4,
-        'GAMMA' : 0.99,
-        'TAU' : 0.08,
+        'GAMMA' : 0.992,
+        'TAU' : 0.1,
         'EMBED_DIM' : 384,
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
@@ -32,10 +32,10 @@ class Config:
         self.MARKET_ENV_PARMS = {
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
-        'MAX_HOLD_STEPS' : 24,
+        'MAX_HOLD_STEPS' : 20,
         'HOLD_PENALTY' : 0.001,
-        'TRADING_FEE' : 0.60,
-        'MAX_TRADES_PER_MONTH' : 8,
+        'TRADING_FEE' : 0.50,
+        'MAX_TRADES_PER_MONTH' : 7,
         }
         
 

@@ -51,7 +51,7 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     
     return (current_price - avg_price) / avg_price
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
     # Calculate raw PnL percentage
     pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
@@ -96,7 +96,7 @@ class MarketEnv:
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
-        self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
+        self.SHARPE_WINDOW = 20  # For calculating rolling Sharpe ratio
         self.VOLATILITY_WINDOW = 20  # For calculating rolling volatility
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
