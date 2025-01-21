@@ -9,7 +9,18 @@ def normalize_reward(reward):
         return np.sign(reward) * np.log(1 + abs(reward))
     return reward
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
+def get_low_vol_penalty(volatility):
+    base_penalty = 0.005  # 0.5% base penalty
+    vol_threshold = 0.15  # 15% annualized volatility threshold
+    
+    if volatility < vol_threshold:
+        # Exponentially increase penalty as volatility decreases
+        penalty_multiplier = np.exp((vol_threshold - volatility) * 10)
+        return base_penalty * penalty_multiplier
+    return 0.0
+     
+@jit(nopython=True, fastmath=True)
 def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
     """Calculate annualized Sharpe ratio"""
     if len(returns) < lookback:
@@ -67,45 +78,6 @@ def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_val
         'risk_adjusted_pnl': risk_adjusted_pnl
     }
 
-class SegmentRiskMetrics:
-    def __init__(self, segment_size):
-        self.segment_size = segment_size
-        self.risk_free_rate = 0.02
-        
-    def calculate_segment_volatility(self, price_window):
-        """Calculate volatility within the current segment"""
-        returns = np.diff(price_window) / price_window[:-1]
-        return np.std(returns)
-        
-    def get_risk_reward_multiplier(self, segment_data, current_idx):
-        """
-        Calculate risk-adjusted reward multiplier using only information
-        available within the current segment up to current_idx
-        """
-        if current_idx < 2:
-            return 1.0
-            
-        # Get data up to current index
-        prices = segment_data.iloc[:current_idx+1]['Close'].values
-        returns = np.diff(prices) / prices[:-1]
-        
-        # Calculate metrics using only segment data
-        volatility = self.calculate_segment_volatility(prices)
-        local_sharpe = calculate_local_sharpe(returns)
-        rel_strength = calculate_relative_strength(prices, current_idx)
-        
-        # Combine metrics into multiplier
-        vol_factor = 1.0 / (1.0 + volatility)  # Lower volatility = higher multiplier
-        sharpe_factor = 0.5 * (1.0 + np.tanh(local_sharpe))  # Scale Sharpe to [0,1]
-        strength_factor = 0.5 * (1.0 + np.tanh(2.0 * rel_strength))  # Scale strength to [0,1]
-        
-        # Weighted combination
-        multiplier = (0.4 * vol_factor + 
-                     0.4 * sharpe_factor + 
-                     0.2 * strength_factor)
-        
-        return np.clip(multiplier, 0.1, 2.0)  # Limit multiplier range
-
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
                 trading_fee, hold_penalty, max_hold_steps, segment_size):
@@ -121,7 +93,6 @@ class MarketEnv:
         # Constants for window sizes
         self.RETURNS_WINDOW_SIZE = 20
         
-        self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
@@ -154,28 +125,6 @@ class MarketEnv:
         high = np.inf * np.ones((self.segment_size, self.state_dim))
         low = -np.inf * np.ones((self.segment_size, self.state_dim))
         self.observation_space = self.Box(low=low, high=high)
-
-    def _validate_trade(self, volatility, price_change):
-        """
-        Validate if a trade should be allowed based on volatility regime
-        """
-        base_threshold = 0.001  # 0.1% minimum price movement
-        min_price_move = base_threshold * (1 + volatility)
-        
-        return abs(price_change) >= min_price_move
-
-    def _calculate_trend_alignment(self, price_history, action):
-        """
-        Calculate if action aligns with recent price trend
-        """
-        if len(price_history) < 5:
-            return 0.0
-            
-        recent_trend = (price_history[-1] - price_history[-5]) / price_history[-5]
-        
-        if (recent_trend > 0 and action == 1) or (recent_trend < 0 and action == 2):
-            return 1.0
-        return -0.5
     
     class ActionSpace:
         def __init__(self, n):
@@ -245,6 +194,7 @@ class MarketEnv:
             metrics['rel_strength'] = 0.0
             
         return metrics
+    
     def _shuffle_segments(self):
         if not self.shuffled_segments:
             self.shuffled_segments = self.segments.copy()
@@ -332,7 +282,7 @@ class MarketEnv:
         self.trades_per_month = 0
 
         return self.get_state()
-
+        
     def step(self, action: int):
         # Check if episode is done
         done = self.current_step >= len(self.data) - 1
@@ -393,6 +343,7 @@ class MarketEnv:
             self.trades_per_month = 0
             self.current_month = current_month
 
+        low_vol_penalty = get_low_vol_penalty(volatility)
         # Execute action using original prices
         if action == 1:  # Buy
             if self.holding:
@@ -406,14 +357,13 @@ class MarketEnv:
                 action_taken = "Invalid Buy - Trade Limit Exceeded"
             else:
                 # Execute Buy with original price
+                trade_cost_pct = (self.trading_fee / self.portfolio_value) + low_vol_penalty
+                reward = -trade_cost_pct
                 self.holding = True
                 self.entry_price = original_close  # Store original entry price
                 self.cash -= (original_close + self.trading_fee)
                 self.trades_per_month += 1
                 
-                # Calculate trade cost percentage based on original values
-                trade_cost_pct = self.trading_fee / self.portfolio_value
-                reward = -trade_cost_pct
                 action_taken = "Buy"
 
         elif action == 2:  # Sell
@@ -442,7 +392,7 @@ class MarketEnv:
                 self.portfolio_value = self.cash
 
                 # Use risk-adjusted PnL for reward
-                base_reward = pnl_metrics['risk_adjusted_pnl']
+                base_reward = pnl_metrics['risk_adjusted_pnl'] - low_vol_penalty
                 
                 # Apply duration factor based on holding duration
                 optimal_hold_duration = max(1, int(10 * (1 - volatility)))

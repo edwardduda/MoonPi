@@ -32,7 +32,7 @@ class Config:
         self.MARKET_ENV_PARMS = {
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
-        'MAX_HOLD_STEPS' : 20,
+        'MAX_HOLD_STEPS' : 24,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.60,
         'MAX_TRADES_PER_MONTH' : 8,
