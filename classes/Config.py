@@ -3,7 +3,7 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-        'SEGMENT_SIZE' : int(200), #time window size      252 = 1 fiscal year
+        'SEGMENT_SIZE' : int(280), #time window size      252 = 1 fiscal year
         'DATASET_CSV' : "full_df.csv",
         'NUM_FEATURES' : None
         }
@@ -15,7 +15,7 @@ class Config:
         'MIN_REPLAY_SIZE' : 90000,
         'LEARNING_RATE' : 1e-4,
         'GAMMA' : 0.992,
-        'TAU' : 0.1,
+        'TAU' : 0.08,
         'EMBED_DIM' : 384,
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
@@ -35,7 +35,7 @@ class Config:
         'MAX_HOLD_STEPS' : 20,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.50,
-        'MAX_TRADES_PER_MONTH' : 7,
+        'MAX_TRADES_PER_MONTH' : 8,
         }
         
 

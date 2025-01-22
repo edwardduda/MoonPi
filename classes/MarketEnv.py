@@ -2,14 +2,15 @@ import pandas as pd
 import numpy as np
 from numba import jit
 from typing import Tuple
+from classes.MarketEnvJit import MarketEnvJit
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def normalize_reward(reward):
     if abs(reward) > 1:
         return np.sign(reward) * np.log(1 + abs(reward))
     return reward
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def get_low_vol_penalty(volatility):
     base_penalty = 0.005  # 0.5% base penalty
     vol_threshold = 0.15  # 15% annualized volatility threshold
@@ -20,7 +21,7 @@ def get_low_vol_penalty(volatility):
         return base_penalty * penalty_multiplier
     return 0.0
      
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
     """Calculate annualized Sharpe ratio"""
     if len(returns) < lookback:
@@ -35,7 +36,7 @@ def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
         
     return (avg_return - 0.02) / std_return
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
     """Calculate relative strength indicator"""
     if current_idx < window:
@@ -51,10 +52,10 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     
     return (current_price - avg_price) / avg_price
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
     # Calculate raw PnL percentage
-    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
+    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-8)) * position_size
         
     # Calculate trade costs
     trade_cost_pct = (trading_fee * 2) / portfolio_value
@@ -117,9 +118,9 @@ class MarketEnv:
         self.windows_filled = False
         
         # Create segments
-        self.segments = self._create_segments()
+        self.segments = self.create_segments()
         self.shuffled_segments = []
-        self._shuffle_segments()
+        self.shuffle_segments()
         
         # Initialize observation space
         high = np.inf * np.ones((self.segment_size, self.state_dim))
@@ -138,7 +139,7 @@ class MarketEnv:
             self.high = high
             self.shape = low.shape
             
-    def _update_window(self, window, value, position):
+    def update_window(self, window, value, position):
         """Helper method to update rolling windows"""
         if not self.windows_filled:
             window[position] = value
@@ -147,7 +148,7 @@ class MarketEnv:
             window[:-1] = window[1:]
             window[-1] = value
             
-    def _create_segments(self):
+    def create_segments(self):
         segments = []
         for ticker, stock_data in self.full_data.groupby("Ticker"):
             num_segments = len(stock_data) // self.segment_size
@@ -157,7 +158,7 @@ class MarketEnv:
                     segments.append(segment)
         return segments
     
-    def _update_feature_window(self, features, position):
+    def update_feature_window(self, features, position):
         """Helper method to update feature window"""
         if not self.windows_filled:
             self.feature_window[position] = features
@@ -168,34 +169,33 @@ class MarketEnv:
             
     def calculate_risk_metrics(self, current_price):
         """Calculate various risk metrics for the current state"""
-        metrics = {}
         
         # Calculate rolling Sharpe ratio
         if len(self.returns_window) >= self.SHARPE_WINDOW:
             recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
-            metrics['sharpe'] = calculate_local_sharpe(recent_returns)
+            sharpe = calculate_local_sharpe(recent_returns)
         else:
-            metrics['sharpe'] = 0.0
+            sharpe = 0.0
             
         # Calculate rolling volatility
         if len(self.returns_window) >= self.VOLATILITY_WINDOW:
             recent_returns = self.returns_window[-self.VOLATILITY_WINDOW:]
-            metrics['volatility'] = np.std(recent_returns) * np.sqrt(252)  # Annualized
+            volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
         else:
-            metrics['volatility'] = 0.0
+            volatility = 0.0
             
         # Calculate relative strength
         if self.window_position > 0 or self.windows_filled:
-            metrics['rel_strength'] = calculate_relative_strength(
+            relative_strength = calculate_relative_strength(
                 self.price_window, 
                 self.window_position if not self.windows_filled else len(self.price_window) - 1
             )
         else:
-            metrics['rel_strength'] = 0.0
+            relative_strength = 0.0
             
-        return metrics
+        return sharpe, volatility, relative_strength
     
-    def _shuffle_segments(self):
+    def shuffle_segments(self):
         if not self.shuffled_segments:
             self.shuffled_segments = self.segments.copy()
             np.random.shuffle(self.shuffled_segments)
@@ -207,9 +207,9 @@ class MarketEnv:
             
             # Create risk state features
             risk_state = np.array([
-                risk_metrics['sharpe'],
-                risk_metrics['volatility'],
-                risk_metrics['rel_strength']
+                risk_metrics[0],
+                risk_metrics[1],
+                risk_metrics[0]
             ])
             
             # Add portfolio state features
@@ -245,11 +245,16 @@ class MarketEnv:
 
     def reset(self):
         if not self.shuffled_segments:
-            self._shuffle_segments()
+            self.shuffle_segments()
 
         # Get new segment
         self.data = self.shuffled_segments.pop()
         
+        self.epi_norm_close_np = self.data["Close"].to_numpy()  # Normalized price for state
+        self.epi_orig_close_np = self.data["Close-orig"].to_numpy()  # Original price for PnL
+        self.epi_open_orig_np = self.data["Open-orig"].to_numpy()
+        self.epi_high_orig_np= self.data["High-orig"].to_numpy()
+        self.epi_low_orig_np = self.data["Low-orig"].to_numpy()
         # Reset all window arrays
         self.price_window.fill(0)
         self.feature_window.fill(0)
@@ -262,21 +267,21 @@ class MarketEnv:
         self.windows_filled = False
         
         # Initialize with first values
-        initial_price = self.data.iloc[0]["Close"]
+        initial_price = self.epi_norm_close_np[0]
         initial_features = self.data[self.feature_columns].iloc[0].values
         initial_date = self.data.index[0]
         
         # Update windows with initial values
-        self._update_window(self.price_window, initial_price, 0)
-        self._update_feature_window(initial_features, 0)
-        self._update_window(self.date_window, np.datetime64(initial_date), 0)
+        self.update_window(self.price_window, initial_price, 0)
+        self.update_feature_window(initial_features, 0)
+        self.update_window(self.date_window, np.datetime64(initial_date), 0)
         
         # Reset state variables
         self.current_step = 0
         self.cash = self.initial_capital
         self.holding = False
         self.entry_price = 0.0
-        self.current_month = initial_date.month  # Corrected line
+        self.current_month = initial_date.month
         self.portfolio_value = self.cash
         self.consecutive_holds = 0
         self.trades_per_month = 0
@@ -288,11 +293,11 @@ class MarketEnv:
         done = self.current_step >= len(self.data) - 1
         
         # Get both normalized and original prices
-        norm_price = self.data.iloc[self.current_step]["Close"]  # Normalized price for state
-        original_close = self.data.iloc[self.current_step]["Close-orig"]  # Original price for PnL
-        original_open = self.data.iloc[self.current_step]["Open-orig"]
-        original_high = self.data.iloc[self.current_step]["High-orig"]
-        original_low = self.data.iloc[self.current_step]["Low-orig"]
+        norm_price = self.epi_norm_close_np[self.current_step]  # Normalized price for state
+        original_close = self.epi_orig_close_np[self.current_step] # Original price for PnL
+        original_open = self.epi_open_orig_np[self.current_step]
+        original_high = self.epi_high_orig_np[self.current_step]
+        original_low = self.epi_low_orig_np[self.current_step]
         
         current_features = self.data[self.feature_columns].iloc[self.current_step].values
         current_date = self.data.index[self.current_step]
@@ -301,15 +306,15 @@ class MarketEnv:
         next_pos = (self.window_position + 1) % self.segment_size
         self.windows_filled = self.windows_filled or next_pos == 0
         
-        self._update_window(self.price_window, norm_price, self.window_position)
-        self._update_feature_window(current_features, self.window_position)
-        self._update_window(self.date_window, np.datetime64(current_date), self.window_position)
+        self.update_window(self.price_window, norm_price, self.window_position)
+        self.update_feature_window(current_features, self.window_position)
+        self.update_window(self.date_window, np.datetime64(current_date), self.window_position)
         
         # Calculate returns using normalized prices for state features
         if self.window_position > 0 or self.windows_filled:
             prev_price = self.price_window[self.window_position - 1] if not self.windows_filled else self.price_window[-2]
             returns = ((norm_price - prev_price) / prev_price) if prev_price != 0 else 0.0
-            self._update_window(self.returns_window, returns, self.returns_position)
+            self.update_window(self.returns_window, returns, self.returns_position)
             self.returns_position = (self.returns_position + 1) % self.RETURNS_WINDOW_SIZE
         
         self.window_position = next_pos
