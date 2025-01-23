@@ -255,6 +255,7 @@ class MarketEnv:
         self.epi_open_orig_np = self.data["Open-orig"].to_numpy()
         self.epi_high_orig_np= self.data["High-orig"].to_numpy()
         self.epi_low_orig_np = self.data["Low-orig"].to_numpy()
+        
         # Reset all window arrays
         self.price_window.fill(0)
         self.feature_window.fill(0)

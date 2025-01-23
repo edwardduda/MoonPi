@@ -33,7 +33,7 @@ class Config:
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
         'MAX_HOLD_STEPS' : 20,
-        'HOLD_PENALTY' : 0.001,
+        'HOLD_PENALTY' : 0.0015,
         'TRADING_FEE' : 0.50,
         'MAX_TRADES_PER_MONTH' : 8,
         }

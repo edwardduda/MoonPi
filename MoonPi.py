@@ -96,7 +96,6 @@ def main():
         config=config,
         )
         
-    
         training_module = Training(env=env,
         main_model=main_model,
         target_model=target_model,
