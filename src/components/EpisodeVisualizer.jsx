@@ -4,7 +4,7 @@ import CandlestickChart from "./CandlestickChart";
 
 const EpisodeVisualizer = () => {
   const [episodeData, setEpisodeData] = useState([]);
-  const [selectedEpisode, setSelectedEpisode] = useState(400);
+  const [selectedEpisode, setSelectedEpisode] = useState(321);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -53,6 +53,7 @@ const EpisodeVisualizer = () => {
           close: step.close || 0,
           timeStep: `t${index}`,
           basedOnState: index > 0 ? `t${index-1}` : null,
+          sharpe_ratio: step.sharpe_ratio || 0,
         };
       });
 
