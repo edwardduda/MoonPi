@@ -27,6 +27,7 @@ class Training:
         self.gamma=config.TRAINING_PARMS.get('GAMMA')
         self.tau=config.TRAINING_PARMS.get('TAU')
         self.learning_rate=config.TRAINING_PARMS.get('LEARNING_RATE')
+        self.min_lr=config.TRAINING_PARMS.get('MIN_LR')
         self.min_replay_size=config.TRAINING_PARMS.get('MIN_REPLAY_SIZE')
         self.device=config.TRAINING_PARMS.get('DEVICE')
         self.weight_decay=config.TRAINING_PARMS.get('WEIGHT_DECAY')
@@ -35,6 +36,7 @@ class Training:
         self.epsilon_end=config.TRAINING_PARMS.get('EPSILON_END')
         self.steps_per_episode=config.TRAINING_PARMS.get('STEPS_PER_EPISODE')
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
+        
         
         logging.basicConfig(
             level=logging.INFO,
@@ -55,7 +57,7 @@ class Training:
         self.scheduler = EpsilonMatchingLRScheduler(
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
-            min_lr=self.learning_rate * 0.2,  # 10% of initial learning rate
+            min_lr=self.min_lr, 
             warmup_steps=min(self.min_replay_size // 10, 2000),
             epsilon_decay=self.epsilon_decay,
             epsilon_min=self.epsilon_end
