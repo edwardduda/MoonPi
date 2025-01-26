@@ -20,9 +20,12 @@ class FeatureAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim)
+            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):
@@ -84,9 +87,12 @@ class TemporalAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim)
+            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):

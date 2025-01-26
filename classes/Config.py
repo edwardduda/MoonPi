@@ -15,9 +15,9 @@ class Config:
         'MIN_REPLAY_SIZE' : 110000,
         'LEARNING_RATE' : 1e-4,
         'MIN_LR' : 1e-5,
-        'GAMMA' : 0.993,
+        'GAMMA' : 0.994,
         'TAU' : 0.06,
-        'EMBED_DIM' : 384,
+        'EMBED_DIM' : 392,
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
@@ -36,7 +36,7 @@ class Config:
         'MAX_HOLD_STEPS' : 23,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.50,
-        'MAX_TRADES_PER_MONTH' : 8,
+        'MAX_TRADES_PER_MONTH' : 10,
         }
         
 
