@@ -17,7 +17,7 @@ class Config:
         'MIN_LR' : 1e-5,
         'GAMMA' : 0.994,
         'TAU' : 0.06,
-        'EMBED_DIM' : 396,
+        'EMBED_DIM' : 400,
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
