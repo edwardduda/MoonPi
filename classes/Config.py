@@ -10,8 +10,8 @@ class Config:
         
         self.TRAINING_PARMS = {
         'EPISODES' : 5000,
-        'BATCH_SIZE' : 128,
-        'BUFFER_SIZE' : 150000,
+        'BATCH_SIZE' : 108,
+        'BUFFER_SIZE' : 140000,
         'MIN_REPLAY_SIZE' : 110000,
         'LEARNING_RATE' : 1e-4,
         'MIN_LR' : 1e-5,
@@ -21,10 +21,11 @@ class Config:
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
-        'NUM_TEMPORAL_LAYERS' : 2,
+        'NUM_FEATURE_LAYERS' : 1,
+        'NUM_TEMPORAL_LAYERS' : 1,
         'EPSILON_START': 1.0,
         'EPSILON_END': 0.3,
-        'EPSILON_DECAY': 0.999995,
+        'EPSILON_DECAY': 0.99995,
         'WEIGHT_DECAY' : 1e-5,
         'STEPS_PER_EPISODE' : self.DATA_CONFIG.get('SEGMENT_SIZE'),
         'MAX_GRADIENT_CLIP' : 1.0
