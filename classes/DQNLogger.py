@@ -119,10 +119,10 @@ class DQNLogger:
                     
                     # Save visualization
                     buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=50)
+                    plt.savefig(buf, format='png', dpi=100)
                     buf.seek(0)
                     image = Image.open(buf)
-                    image = image.resize((700, 700))
+                    image = image.resize((1000, 1000))
                     self.writer.add_image(f'attention/temporal_layer_{layer_idx + 1}', 
                                         np.array(image).transpose(2, 0, 1), 
                                         self.step)
@@ -154,10 +154,10 @@ class DQNLogger:
                         
                         # Save visualization
                         buf = io.BytesIO()
-                        plt.savefig(buf, format='png', dpi=50, bbox_inches='tight')
+                        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
                         buf.seek(0)
                         image = Image.open(buf)
-                        image = image.resize((700, 700))
+                        image = image.resize((1500, 1500))
                         self.writer.add_image(f'attention/feature_layer_{layer_idx + 1}', 
                                             np.array(image).transpose(2, 0, 1), 
                                             self.step)

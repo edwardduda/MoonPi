@@ -16,7 +16,7 @@ class Config:
         'LEARNING_RATE' : 1e-4,
         'MIN_LR' : 1e-5,
         'GAMMA' : 0.994,
-        'TAU' : 0.06,
+        'TAU' : 0.08,
         'EMBED_DIM' : 400,
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
@@ -34,10 +34,10 @@ class Config:
         self.MARKET_ENV_PARMS = {
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
-        'MAX_HOLD_STEPS' : 23,
+        'MAX_HOLD_STEPS' : 15,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.50,
-        'MAX_TRADES_PER_MONTH' : 10,
+        'MAX_TRADES_PER_MONTH' : 16,
         }
         
 

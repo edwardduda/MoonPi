@@ -367,20 +367,6 @@ class MarketEnv:
                 reward = -1.5 * (1 + volatility)
                 action_taken = "Invalid Buy - Trade Limit Exceeded"
             else:
-                
-                current_sharpe = self.risk_metrics[0]
-                if current_sharpe > 3.0:  # Excellent conditions
-                    sharpe_multiplier = 1.1
-                    action_taken = "Buy - Excellent Sharpe"
-                elif current_sharpe > 2.0:  # Good conditions
-                    sharpe_multiplier = 1.05
-                    action_taken = "Buy - Good Sharpe"
-                elif current_sharpe >= 0:  # Neutral conditions
-                    sharpe_multiplier = 1.0
-                    action_taken = "Buy - Neutral Sharpe"
-                else:  # Poor conditions
-                    sharpe_multiplier = 0.95
-                    action_taken = "Buy - Poor Sharpe"
                 # Execute Buy with original price
                 trade_cost_pct = (self.trading_fee / self.portfolio_value) + low_vol_penalty
                 reward = -trade_cost_pct
@@ -406,26 +392,6 @@ class MarketEnv:
                     self.returns_window
                 )
                 
-                # Check Sharpe ratio conditions for sell decision
-                current_sharpe = self.risk_metrics[0]
-                if current_sharpe > 3.0:  # Excellent conditions
-                    # Penalize early exits in strong trends unless significant profit
-                    if pnl_metrics['net_pnl_pct'] > 0.05:  # 5% profit threshold
-                        sharpe_multiplier = 1.1  # Neutral - ok to take profit
-                        action_taken = "Sell - Profit Taking in Strong Trend"
-                    else:
-                        sharpe_multiplier = 0.95  # Penalty for early exit
-                        action_taken = "Sell - Early Exit in Strong Trend"
-                elif current_sharpe > 2.0:  # Good conditions
-                    sharpe_multiplier = 1.05
-                    action_taken = "Sell - Good Market Conditions"
-                elif current_sharpe >= 0:  # Neutral conditions
-                    sharpe_multiplier = 1.0  # Slight boost for taking profits
-                    action_taken = "Sell - Neutral Market Conditions"
-                else:  # Poor conditions
-                    sharpe_multiplier = 1.05  # Reward for risk management
-                    action_taken = "Sell - Poor Market Conditions"
-
                 # Execute Sell with modified reward
                 self.cash += (original_close - self.trading_fee)
                 self.holding = False
@@ -437,7 +403,7 @@ class MarketEnv:
                 # Apply Sharpe multiplier and duration factors
                 optimal_hold_duration = max(1, int(10 * (1 - volatility)))
                 duration_factor = np.exp(-0.5 * ((self.consecutive_holds - optimal_hold_duration) / optimal_hold_duration) ** 2)
-                reward = base_reward * sharpe_multiplier * duration_factor
+                reward = base_reward * duration_factor
 
                 # Additional PnL adjustments
                 if pnl_metrics['net_pnl_pct'] > 0:
@@ -458,26 +424,8 @@ class MarketEnv:
                     self.returns_window
                 )
                 
-                # Check Sharpe ratio conditions for hold decision
-                current_sharpe = self.risk_metrics[0]
-                if current_sharpe > 3.0:  # Excellent conditions
-                    sharpe_multiplier = 1.05  # Strong reward for holding
-                    action_taken = "Hold - Excellent Trend Continuation"
-                elif current_sharpe > 2.0:  # Good conditions
-                    sharpe_multiplier = 1.025  # Moderate reward
-                    action_taken = "Hold - Good Trend Continuation"
-                elif current_sharpe >= 0:  # Neutral conditions
-                    sharpe_multiplier = 1.0  # Neutral
-                    action_taken = "Hold - Neutral Conditions"
-                else:  # Poor conditions
-                    sharpe_multiplier = 0.95  # Penalty for holding in poor conditions
-                    action_taken = "Hold - Poor Conditions"
-
                 # Calculate base reward
                 base_reward = 0.1 * pnl_metrics['net_pnl_pct']
-                
-                # Apply Sharpe multiplier
-                reward = base_reward * sharpe_multiplier
                 
                 # Apply standard hold penalties
                 hold_penalty = self.hold_penalty * (1.1 ** min(self.consecutive_holds, 20))
@@ -487,15 +435,6 @@ class MarketEnv:
                 max_optimal_hold = max(1, int(self.max_hold_steps * (1 + volatility)))
                 if self.consecutive_holds > max_optimal_hold:
                     reward -= 0.05 * (self.consecutive_holds - max_optimal_hold)
-            
-            else:  # Not holding
-                current_sharpe = self.risk_metrics[0]
-                if current_sharpe < 0:  # Poor conditions
-                    reward = -0.5 * self.hold_penalty  # Reduced penalty for appropriate waiting
-                    action_taken = "Hold - Appropriate Wait in Poor Conditions"
-                else:  # Good conditions
-                    reward = -self.hold_penalty * (1.2 ** min(self.consecutive_holds, 12))  # Increased penalty
-                    action_taken = "Hold - Missing Opportunity"
 
             self.consecutive_holds += 1
 

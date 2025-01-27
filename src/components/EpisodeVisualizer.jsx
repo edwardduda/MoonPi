@@ -4,7 +4,7 @@ import CandlestickChart from "./CandlestickChart";
 
 const EpisodeVisualizer = () => {
   const [episodeData, setEpisodeData] = useState([]);
-  const [selectedEpisode, setSelectedEpisode] = useState(321);
+  const [selectedEpisode, setSelectedEpisode] = useState(392);
   const [error, setError] = useState(null);
 
   useEffect(() => {
