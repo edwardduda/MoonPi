@@ -20,9 +20,12 @@ class FeatureAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim)
+            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):
@@ -84,9 +87,12 @@ class TemporalAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
             nn.Linear(embed_dim, embed_dim * 4),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim)
+            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):
@@ -109,6 +115,7 @@ class TemporalAttentionBlock(nn.Module):
 class AttentionDQN(nn.Module):
     def __init__(self, state_dim, action_dim, embed_dim, num_heads, dropout_rate, batch_size):
         super().__init__()
+        self.config = Config()
         self.state_dim = state_dim
         self.seq_len, self.num_features = state_dim
         self.action_dim = action_dim
@@ -130,20 +137,23 @@ class AttentionDQN(nn.Module):
         # Temporal blocks remain the same
         self.temporal_blocks = nn.ModuleList([
             TemporalAttentionBlock(embed_dim, num_heads, dropout_rate)
-            for _ in range(1)
+            for _ in range(self.config.TRAINING_PARMS.get('NUM_TEMPORAL_LAYERS'))
         ])
         
         # Feature blocks now get num_features parameter
         self.feature_blocks = nn.ModuleList([
             FeatureAttentionBlock(embed_dim, num_heads, dropout_rate, self.num_features)
-            for _ in range(3)
+            for _ in range(self.config.TRAINING_PARMS.get('NUM_FEATURE_LAYERS'))
         ])
         
         self.final_norm = nn.LayerNorm(embed_dim)
         
         self.q_values = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 2),
-            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(embed_dim * 2, embed_dim),
             nn.ReLU(),
