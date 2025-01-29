@@ -3,7 +3,7 @@ import numpy as np
 from numba import jit
 from typing import Tuple
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def normalize_reward(reward):
     if abs(reward) > 1:
         return np.sign(reward) * np.log(1 + abs(reward))
@@ -24,7 +24,7 @@ def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
         
     return (avg_return - 0.02) / std_return
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True)
 def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
     """Calculate relative strength indicator"""
     if current_idx < window:

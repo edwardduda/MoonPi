@@ -12,7 +12,7 @@ class Config:
         'EPISODES' : 5000,
         'BATCH_SIZE' : 128,
         'BUFFER_SIZE' : 150000,
-        'MIN_REPLAY_SIZE' : 80000,
+        'MIN_REPLAY_SIZE' : 10000,
         'LEARNING_RATE' : 1e-4,
         'GAMMA' : 0.99,
         'TAU' : 0.08,
