@@ -27,7 +27,7 @@ class FeatureAttentionBlock(nn.Module):
     def forward(self, x):
         # Add debug prints
         #print(f"Input shape: {x.shape}")
-        temperature = 0.9
+        temperature = 0.3
         # Transpose to (batch_size, embed_dim, seq_len)
         x = x.transpose(1, 2)
         #print(f"After first transpose shape: {x.shape}")
