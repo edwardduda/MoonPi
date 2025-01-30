@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import math
 from classes.Config import Config
 
-
 class FeatureAttentionBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout_rate, num_features):
         super().__init__()
