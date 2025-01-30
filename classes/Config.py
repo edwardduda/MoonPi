@@ -12,12 +12,12 @@ class Config:
         'EPISODES' : 5000,
         'BATCH_SIZE' : 128,
         'BUFFER_SIZE' : 150000,
-        'MIN_REPLAY_SIZE' : 10000,
+        'MIN_REPLAY_SIZE' : 110000,
         'LEARNING_RATE' : 1e-4,
         'GAMMA' : 0.99,
         'TAU' : 0.08,
         'EMBED_DIM' : 384,
-        'NUM_HEADS' : 16,
+        'NUM_HEADS' : 24,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
         'NUM_TEMPORAL_LAYERS' : 2,
@@ -32,7 +32,7 @@ class Config:
         self.MARKET_ENV_PARMS = {
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
-        'MAX_HOLD_STEPS' : 20,
+        'MAX_HOLD_STEPS' : 21,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.60,
         'MAX_TRADES_PER_MONTH' : 8,

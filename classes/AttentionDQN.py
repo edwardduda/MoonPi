@@ -18,29 +18,29 @@ class FeatureAttentionBlock(nn.Module):
         self.layer_norm1 = nn.LayerNorm([embed_dim, config.DATA_CONFIG.get('SEGMENT_SIZE')])
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 4),
+            nn.Linear(embed_dim, embed_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim)
+            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):
         # Add debug prints
-        print(f"Input shape: {x.shape}")
-        
+        #print(f"Input shape: {x.shape}")
+        temperature = 0.9
         # Transpose to (batch_size, embed_dim, seq_len)
         x = x.transpose(1, 2)
-        print(f"After first transpose shape: {x.shape}")
+        #print(f"After first transpose shape: {x.shape}")
         
         # Layer norm
         normed_x = self.layer_norm1(x)
         # Transpose back for attention
         normed_x = normed_x.transpose(1, 2)
-        print(f"Before attention shape: {normed_x.shape}")
+        #print(f"Before attention shape: {normed_x.shape}")
         
         # Apply attention
         attention_output, attention_weights = self.attention(normed_x, normed_x, normed_x)
-        print(f"Attention weights shape: {attention_weights.shape}")
+        #print(f"Attention weights shape: {attention_weights.shape}")
         
         # Process attention weights to get feature attention
         # If attention_weights is 2D, reshape it appropriately
@@ -51,8 +51,8 @@ class FeatureAttentionBlock(nn.Module):
         
         # Take only the feature-relevant portion
         feature_attention = attention_weights[:, :self.num_features, :self.num_features]
-        print(f"Feature attention shape: {feature_attention.shape}")
-        
+        #print(f"Feature attention shape: {feature_attention.shape}")
+        feature_attention = F.softmax(feature_attention / temperature, dim=1)
         # Continue with the rest of the forward pass
         attention_output = attention_output.transpose(1, 2)
         x = x + self.dropout(attention_output)
@@ -81,10 +81,10 @@ class TemporalAttentionBlock(nn.Module):
         self.layer_norm1 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 4),
+            nn.Linear(embed_dim, embed_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim)
+            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):
@@ -134,7 +134,7 @@ class AttentionDQN(nn.Module):
         # Feature blocks now get num_features parameter
         self.feature_blocks = nn.ModuleList([
             FeatureAttentionBlock(embed_dim, num_heads, dropout_rate, self.num_features)
-            for _ in range(1)
+            for _ in range(2)
         ])
         
         self.final_norm = nn.LayerNorm(embed_dim)
