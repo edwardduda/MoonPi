@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 from numba import jit
 from typing import Tuple
+from classes.MarketEnvJit import MarketEnvJit
 
+@jit(nopython=True)
 @jit(nopython=True)
 def normalize_reward(reward):
     if abs(reward) > 1:
@@ -10,7 +12,18 @@ def normalize_reward(reward):
     return reward
 
 @jit(nopython=True)
-def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
+def get_low_vol_penalty(volatility):
+    base_penalty = 0.005  # 0.5% base penalty
+    vol_threshold = 0.15  # 15% annualized volatility threshold
+    
+    if volatility < vol_threshold:
+        # Exponentially increase penalty as volatility decreases
+        penalty_multiplier = np.exp((vol_threshold - volatility) * 10)
+        return base_penalty * penalty_multiplier
+    return 0.0
+     
+@jit(nopython=True)
+def calculate_local_sharpe(returns: np.ndarray, lookback) -> float:
     """Calculate annualized Sharpe ratio"""
     if len(returns) < lookback:
         return 0.0
@@ -24,6 +37,7 @@ def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
         
     return (avg_return - 0.02) / std_return
 
+@jit(nopython=True)
 @jit(nopython=True)
 def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
     """Calculate relative strength indicator"""
@@ -43,7 +57,7 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
 @jit(nopython=True)
 def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
     # Calculate raw PnL percentage
-    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
+    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-8)) * position_size
         
     # Calculate trade costs
     trade_cost_pct = (trading_fee * 2) / portfolio_value
@@ -119,9 +133,8 @@ class MarketEnv:
         self.max_hold_steps = max_hold_steps
         
         # Constants for window sizes
-        self.RETURNS_WINDOW_SIZE = 20
+        self.RETURNS_WINDOW_SIZE = 40
         
-        self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
@@ -130,6 +143,9 @@ class MarketEnv:
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
+        
+        self.risk_metrics = (0.0, 0.0, 0.0)
+        
         # Get feature dimensions (excluding Close and Ticker)
         self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
@@ -146,36 +162,14 @@ class MarketEnv:
         self.windows_filled = False
         
         # Create segments
-        self.segments = self._create_segments()
+        self.segments = self.create_segments()
         self.shuffled_segments = []
-        self._shuffle_segments()
+        self.shuffle_segments()
         
         # Initialize observation space
         high = np.inf * np.ones((self.segment_size, self.state_dim))
         low = -np.inf * np.ones((self.segment_size, self.state_dim))
         self.observation_space = self.Box(low=low, high=high)
-
-    def _validate_trade(self, volatility, price_change):
-        """
-        Validate if a trade should be allowed based on volatility regime
-        """
-        base_threshold = 0.001  # 0.1% minimum price movement
-        min_price_move = base_threshold * (1 + volatility)
-        
-        return abs(price_change) >= min_price_move
-
-    def _calculate_trend_alignment(self, price_history, action):
-        """
-        Calculate if action aligns with recent price trend
-        """
-        if len(price_history) < 5:
-            return 0.0
-            
-        recent_trend = (price_history[-1] - price_history[-5]) / price_history[-5]
-        
-        if (recent_trend > 0 and action == 1) or (recent_trend < 0 and action == 2):
-            return 1.0
-        return -0.5
     
     class ActionSpace:
         def __init__(self, n):
@@ -189,7 +183,7 @@ class MarketEnv:
             self.high = high
             self.shape = low.shape
             
-    def _update_window(self, window, value, position):
+    def update_window(self, window, value, position):
         """Helper method to update rolling windows"""
         if not self.windows_filled:
             window[position] = value
@@ -198,7 +192,7 @@ class MarketEnv:
             window[:-1] = window[1:]
             window[-1] = value
             
-    def _create_segments(self):
+    def create_segments(self):
         segments = []
         for ticker, stock_data in self.full_data.groupby("Ticker"):
             num_segments = len(stock_data) // self.segment_size
@@ -208,7 +202,7 @@ class MarketEnv:
                     segments.append(segment)
         return segments
     
-    def _update_feature_window(self, features, position):
+    def update_feature_window(self, features, position):
         """Helper method to update feature window"""
         if not self.windows_filled:
             self.feature_window[position] = features
@@ -219,33 +213,35 @@ class MarketEnv:
             
     def calculate_risk_metrics(self, current_price):
         """Calculate various risk metrics for the current state"""
-        metrics = {}
         
         # Calculate rolling Sharpe ratio
         if len(self.returns_window) >= self.SHARPE_WINDOW:
             recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
-            metrics['sharpe'] = calculate_local_sharpe(recent_returns)
+            sharpe = calculate_local_sharpe(recent_returns, self.SHARPE_WINDOW)
         else:
-            metrics['sharpe'] = 0.0
+            sharpe = 0.0
             
         # Calculate rolling volatility
         if len(self.returns_window) >= self.VOLATILITY_WINDOW:
             recent_returns = self.returns_window[-self.VOLATILITY_WINDOW:]
-            metrics['volatility'] = np.std(recent_returns) * np.sqrt(252)  # Annualized
+            volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
         else:
-            metrics['volatility'] = 0.0
+            volatility = 0.0
             
         # Calculate relative strength
         if self.window_position > 0 or self.windows_filled:
-            metrics['rel_strength'] = calculate_relative_strength(
+            relative_strength = calculate_relative_strength(
                 self.price_window, 
                 self.window_position if not self.windows_filled else len(self.price_window) - 1
             )
         else:
-            metrics['rel_strength'] = 0.0
+            relative_strength = 0.0
             
-        return metrics
-    def _shuffle_segments(self):
+        self.risk_metrics = (sharpe, volatility, relative_strength)
+        
+        return sharpe, volatility, relative_strength
+    
+    def shuffle_segments(self):
         if not self.shuffled_segments:
             self.shuffled_segments = self.segments.copy()
             np.random.shuffle(self.shuffled_segments)
@@ -253,13 +249,13 @@ class MarketEnv:
     def get_state(self):
         try:
             # Calculate risk metrics
-            risk_metrics = self.calculate_risk_metrics(self.price_window[-1])
+            self.calculate_risk_metrics(self.price_window[-1])
             
             # Create risk state features
             risk_state = np.array([
-                risk_metrics['sharpe'],
-                risk_metrics['volatility'],
-                risk_metrics['rel_strength']
+                self.risk_metrics[0],
+                self.risk_metrics[1],
+                self.risk_metrics[0]
             ])
             
             # Add portfolio state features
@@ -295,10 +291,16 @@ class MarketEnv:
 
     def reset(self):
         if not self.shuffled_segments:
-            self._shuffle_segments()
+            self.shuffle_segments()
 
         # Get new segment
         self.data = self.shuffled_segments.pop()
+        
+        self.epi_norm_close_np = self.data["Close"].to_numpy()  # Normalized price for state
+        self.epi_orig_close_np = self.data["Close-orig"].to_numpy()  # Original price for PnL
+        self.epi_open_orig_np = self.data["Open-orig"].to_numpy()
+        self.epi_high_orig_np= self.data["High-orig"].to_numpy()
+        self.epi_low_orig_np = self.data["Low-orig"].to_numpy()
         
         # Reset all window arrays
         self.price_window.fill(0)
@@ -312,37 +314,37 @@ class MarketEnv:
         self.windows_filled = False
         
         # Initialize with first values
-        initial_price = self.data.iloc[0]["Close"]
+        initial_price = self.epi_norm_close_np[0]
         initial_features = self.data[self.feature_columns].iloc[0].values
         initial_date = self.data.index[0]
         
         # Update windows with initial values
-        self._update_window(self.price_window, initial_price, 0)
-        self._update_feature_window(initial_features, 0)
-        self._update_window(self.date_window, np.datetime64(initial_date), 0)
+        self.update_window(self.price_window, initial_price, 0)
+        self.update_feature_window(initial_features, 0)
+        self.update_window(self.date_window, np.datetime64(initial_date), 0)
         
         # Reset state variables
         self.current_step = 0
         self.cash = self.initial_capital
         self.holding = False
         self.entry_price = 0.0
-        self.current_month = initial_date.month  # Corrected line
+        self.current_month = initial_date.month
         self.portfolio_value = self.cash
         self.consecutive_holds = 0
         self.trades_per_month = 0
 
         return self.get_state()
-
+        
     def step(self, action: int):
         # Check if episode is done
         done = self.current_step >= len(self.data) - 1
         
         # Get both normalized and original prices
-        norm_price = self.data.iloc[self.current_step]["Close"]  # Normalized price for state
-        original_close = self.data.iloc[self.current_step]["Close-orig"]  # Original price for PnL
-        original_open = self.data.iloc[self.current_step]["Open-orig"]
-        original_high = self.data.iloc[self.current_step]["High-orig"]
-        original_low = self.data.iloc[self.current_step]["Low-orig"]
+        norm_price = self.epi_norm_close_np[self.current_step]  # Normalized price for state
+        original_close = self.epi_orig_close_np[self.current_step] # Original price for PnL
+        original_open = self.epi_open_orig_np[self.current_step]
+        original_high = self.epi_high_orig_np[self.current_step]
+        original_low = self.epi_low_orig_np[self.current_step]
         
         current_features = self.data[self.feature_columns].iloc[self.current_step].values
         current_date = self.data.index[self.current_step]
@@ -351,15 +353,15 @@ class MarketEnv:
         next_pos = (self.window_position + 1) % self.segment_size
         self.windows_filled = self.windows_filled or next_pos == 0
         
-        self._update_window(self.price_window, norm_price, self.window_position)
-        self._update_feature_window(current_features, self.window_position)
-        self._update_window(self.date_window, np.datetime64(current_date), self.window_position)
+        self.update_window(self.price_window, norm_price, self.window_position)
+        self.update_feature_window(current_features, self.window_position)
+        self.update_window(self.date_window, np.datetime64(current_date), self.window_position)
         
         # Calculate returns using normalized prices for state features
         if self.window_position > 0 or self.windows_filled:
             prev_price = self.price_window[self.window_position - 1] if not self.windows_filled else self.price_window[-2]
             returns = ((norm_price - prev_price) / prev_price) if prev_price != 0 else 0.0
-            self._update_window(self.returns_window, returns, self.returns_position)
+            self.update_window(self.returns_window, returns, self.returns_position)
             self.returns_position = (self.returns_position + 1) % self.RETURNS_WINDOW_SIZE
         
         self.window_position = next_pos
@@ -393,6 +395,7 @@ class MarketEnv:
             self.trades_per_month = 0
             self.current_month = current_month
 
+        low_vol_penalty = get_low_vol_penalty(volatility)
         # Execute action using original prices
         if action == 1:  # Buy
             if self.holding:
@@ -406,15 +409,12 @@ class MarketEnv:
                 action_taken = "Invalid Buy - Trade Limit Exceeded"
             else:
                 # Execute Buy with original price
+                trade_cost_pct = (self.trading_fee / self.portfolio_value) + low_vol_penalty
+                reward = -trade_cost_pct
                 self.holding = True
                 self.entry_price = original_close  # Store original entry price
                 self.cash -= (original_close + self.trading_fee)
                 self.trades_per_month += 1
-                
-                # Calculate trade cost percentage based on original values
-                trade_cost_pct = self.trading_fee / self.portfolio_value
-                reward = -trade_cost_pct
-                action_taken = "Buy"
 
         elif action == 2:  # Sell
             if not self.holding:
@@ -424,7 +424,7 @@ class MarketEnv:
                 reward = -1.5 * (1 + volatility)
                 action_taken = "Invalid Sell - Trade Limit Exceeded"
             else:
-                # Calculate PnL metrics using original prices
+                # Calculate base PnL metrics
                 pnl_metrics = calculate_pnl_metrics(
                     original_close,
                     self.entry_price,
@@ -433,34 +433,30 @@ class MarketEnv:
                     self.returns_window
                 )
                 
-                # Execute Sell with original price
+                # Execute Sell with modified reward
                 self.cash += (original_close - self.trading_fee)
                 self.holding = False
                 self.trades_per_month += 1
 
-                # Update portfolio value after selling
-                self.portfolio_value = self.cash
-
-                # Use risk-adjusted PnL for reward
-                base_reward = pnl_metrics['risk_adjusted_pnl']
+                # Base reward using risk-adjusted PnL
+                base_reward = pnl_metrics['risk_adjusted_pnl'] - low_vol_penalty
                 
-                # Apply duration factor based on holding duration
+                # Apply Sharpe multiplier and duration factors
                 optimal_hold_duration = max(1, int(10 * (1 - volatility)))
                 duration_factor = np.exp(-0.5 * ((self.consecutive_holds - optimal_hold_duration) / optimal_hold_duration) ** 2)
                 reward = base_reward * duration_factor
 
-                # Adjust reward based on actual PnL
+                # Additional PnL adjustments
                 if pnl_metrics['net_pnl_pct'] > 0:
                     reward *= 1.1
                 else:
                     reward *= 0.9
 
                 self.consecutive_holds = 0
-                action_taken = "Sell"
 
         else:  # Hold
             if self.holding:
-                # Calculate PnL metrics using original prices
+                # Calculate PnL metrics for current position
                 pnl_metrics = calculate_pnl_metrics(
                     original_close,
                     self.entry_price,
@@ -468,21 +464,18 @@ class MarketEnv:
                     self.portfolio_value,
                     self.returns_window
                 )
-                # Partial reward for holding
-                reward = 0.1 * pnl_metrics['net_pnl_pct']
-                # Apply hold penalty
+                
+                # Calculate base reward
+                base_reward = 0.1 * pnl_metrics['net_pnl_pct']
+                
+                # Apply standard hold penalties
                 hold_penalty = self.hold_penalty * (1.1 ** min(self.consecutive_holds, 20))
                 reward -= hold_penalty
 
-                # Penalize if holding too long
+                # Additional penalty for holding too long
                 max_optimal_hold = max(1, int(self.max_hold_steps * (1 + volatility)))
                 if self.consecutive_holds > max_optimal_hold:
                     reward -= 0.05 * (self.consecutive_holds - max_optimal_hold)
-                
-                action_taken = "Hold - Holding Position"
-            else:
-                reward = -self.hold_penalty * (1.2 ** min(self.consecutive_holds, 12))
-                action_taken = "Hold - No Position"
 
             self.consecutive_holds += 1
 
