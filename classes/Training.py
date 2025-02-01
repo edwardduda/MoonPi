@@ -45,7 +45,8 @@ class Training:
         self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=400, attention_freq=400, histogram_freq=400, buffer_size=500)
         feature_names = []
         feature_names = [col for col in env.feature_columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
-        feature_names.extend(['Portfolio_Cash', 
+        feature_names.extend([
+            'Portfolio_Cash',
             'Holding_Flag',
             'Sharpe_Ratio',
             'Volatility',

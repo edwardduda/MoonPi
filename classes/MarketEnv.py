@@ -5,6 +5,7 @@ from typing import Tuple
 from classes.MarketEnvJit import MarketEnvJit
 
 @jit(nopython=True)
+@jit(nopython=True)
 def normalize_reward(reward):
     if abs(reward) > 1:
         return np.sign(reward) * np.log(1 + abs(reward))
@@ -36,6 +37,7 @@ def calculate_local_sharpe(returns: np.ndarray, lookback) -> float:
         
     return (avg_return - 0.02) / std_return
 
+@jit(nopython=True)
 @jit(nopython=True)
 def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
     """Calculate relative strength indicator"""
@@ -79,6 +81,45 @@ def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_val
         'risk_adjusted_pnl': risk_adjusted_pnl
     }
 
+class SegmentRiskMetrics:
+    def __init__(self, segment_size):
+        self.segment_size = segment_size
+        self.risk_free_rate = 0.02
+        
+    def calculate_segment_volatility(self, price_window):
+        """Calculate volatility within the current segment"""
+        returns = np.diff(price_window) / price_window[:-1]
+        return np.std(returns)
+        
+    def get_risk_reward_multiplier(self, segment_data, current_idx):
+        """
+        Calculate risk-adjusted reward multiplier using only information
+        available within the current segment up to current_idx
+        """
+        if current_idx < 2:
+            return 1.0
+            
+        # Get data up to current index
+        prices = segment_data.iloc[:current_idx+1]['Close'].values
+        returns = np.diff(prices) / prices[:-1]
+        
+        # Calculate metrics using only segment data
+        volatility = self.calculate_segment_volatility(prices)
+        local_sharpe = calculate_local_sharpe(returns)
+        rel_strength = calculate_relative_strength(prices, current_idx)
+        
+        # Combine metrics into multiplier
+        vol_factor = 1.1   # Lower volatility = higher multiplier
+        sharpe_factor = 1.1 # Scale Sharpe to [0,1]
+        strength_factor = 1.1  # Scale strength to [0,1]
+        
+        # Weighted combination
+        multiplier = (0.4 * vol_factor + 
+                     0.4 * sharpe_factor + 
+                     0.2 * strength_factor)
+        
+        return np.clip(multiplier, 0.1, 2.0)  # Limit multiplier range
+
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
                 trading_fee, hold_penalty, max_hold_steps, segment_size):
@@ -97,8 +138,8 @@ class MarketEnv:
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
-        self.SHARPE_WINDOW = 40  # For calculating rolling Sharpe ratio
-        self.VOLATILITY_WINDOW = 40  # For calculating rolling volatility
+        self.SHARPE_WINDOW = 20  # For calculating rolling Sharpe ratio
+        self.VOLATILITY_WINDOW = 20  # For calculating rolling volatility
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
@@ -219,8 +260,8 @@ class MarketEnv:
             
             # Add portfolio state features
             portfolio_state = np.array([
-                self.cash / self.initial_capital,
-                float(self.holding)
+                float(self.holding),
+                self.cash / self.initial_capital
             ])
             
             # Combine market features with portfolio and risk state
@@ -358,10 +399,10 @@ class MarketEnv:
         # Execute action using original prices
         if action == 1:  # Buy
             if self.holding:
-                reward = -2.5 * (1 + volatility)
+                reward = -3.5 * (1 + volatility)
                 action_taken = "Invalid Buy - Already Holding"
             elif self.cash < (original_close + self.trading_fee):  # Check using original price
-                reward = -3.5 * (1 + volatility)
+                reward = -2.5 * (1 + volatility)
                 action_taken = "Invalid Buy - Insufficient Cash"
             elif self.trades_per_month >= self.max_trades_per_month:
                 reward = -1.5 * (1 + volatility)

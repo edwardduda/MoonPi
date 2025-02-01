@@ -6,72 +6,98 @@ from classes.Config import Config
 
 class FeatureAttentionBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout_rate, num_features):
+        """
+        Args:
+            embed_dim: Dimension of the per-time-step embedding (input shape: [batch, seq_len, embed_dim])
+            num_features: The number of features in the original state.
+            num_heads: Number of attention heads for feature attention.
+            dropout_rate: Dropout rate applied after attention and FFN layers.
+        """
+        # Here we set the feature dimension to 12 (you can adjust as needed)
+        feature_dim = 12
         super().__init__()
-        config = Config()
-        self.num_features = num_features
+        self.num_features = num_features 
+        self.feature_dim = feature_dim
+        
+        # Project the per-time-step embedding into a feature-level representation.
+        # This transforms each [embed_dim] vector into a vector of size (num_features * feature_dim),
+        # which we then reshape to [num_features, feature_dim].
+        self.proj = nn.Linear(embed_dim, num_features * feature_dim)
+        
+        # Multihead attention that operates over the feature tokens.
         self.attention = nn.MultiheadAttention(
-            embed_dim=embed_dim,
+            embed_dim=feature_dim,
             num_heads=num_heads,
             dropout=dropout_rate,
-            batch_first=True
+            batch_first=True  # We'll be working with (batch, tokens, feature_dim)
         )
-        self.layer_norm1 = nn.LayerNorm([embed_dim, config.DATA_CONFIG.get('SEGMENT_SIZE')])
-        self.layer_norm2 = nn.LayerNorm([embed_dim, config.DATA_CONFIG.get('SEGMENT_SIZE')])
-        self.dropout = nn.Dropout(dropout_rate)
+        
+        # A simple feed-forward network applied on each feature token.
         self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 4),
+            nn.Linear(feature_dim, feature_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim * 2),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 2, embed_dim)
+            nn.Linear(feature_dim * 2, feature_dim)
         )
+        
+        # Layer norms for residual connections.
+        self.layer_norm1 = nn.LayerNorm(feature_dim)
+        self.layer_norm2 = nn.LayerNorm(feature_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        # Optionally, a final projection back to embed_dim.
+        self.out_proj = nn.Linear(num_features * feature_dim, embed_dim)
+        
+        # Layer norms for residual connections.
+        self.layer_norm1 = nn.LayerNorm(feature_dim)
+        self.layer_norm2 = nn.LayerNorm(feature_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        # Optionally, a final projection back to embed_dim.
+        self.out_proj = nn.Linear(num_features * feature_dim, embed_dim)
         
     def forward(self, x):
-        # Add debug prints
-        #print(f"Input shape: {x.shape}")
+        """
+        Args:
+            x: Tensor of shape (batch, seq_len, embed_dim)
+        Returns:
+            out: Tensor of shape (batch, seq_len, embed_dim) after feature attention.
+            attn_weights: The attention weights from the multihead attention (for inspection).
+        """
+        batch, seq_len, _ = x.size()
         
-        # Transpose to (batch_size, embed_dim, seq_len)
-        x = x.transpose(1, 2)
-        #print(f"After first transpose shape: {x.shape}")
+        # Project input: shape becomes (batch, seq_len, num_features * feature_dim)
+        x_proj = self.proj(x)
         
-        # Layer norm
-        normed_x = self.layer_norm1(x)
-        # Transpose back for attention
-        normed_x = normed_x.transpose(1, 2)
-        #print(f"Before attention shape: {normed_x.shape}")
+        # Reshape to have a token for each feature:
+        # New shape: (batch * seq_len, num_features, feature_dim)
+        x_feat = x_proj.view(batch * seq_len, self.num_features, self.feature_dim)
         
-        # Apply attention
-        attention_output, attention_weights = self.attention(normed_x, normed_x, normed_x)
-        #print(f"Attention weights shape: {attention_weights.shape}")
+        # Create a key padding mask.
+        # For each token (i.e. each feature vector), if the absolute sum is nearly zero, mark it as padded.
+        # This mask should have shape (batch * seq_len, num_features) and be of type bool.
+        key_padding_mask = (x_feat.abs().sum(dim=-1) < 1e-6)
         
-        # Process attention weights to get feature attention
-        # If attention_weights is 2D, reshape it appropriately
-        if len(attention_weights.shape) == 2:
-            # Reshape to (batch_size, seq_len, seq_len)
-            seq_len = attention_weights.size(1)
-            attention_weights = attention_weights.view(-1, seq_len, seq_len)
+        # Pass the mask to the multihead attention module.
+        # Tokens flagged in the key_padding_mask will be ignored in the attention computation.
+        attn_output, attn_weights = self.attention(
+            x_feat, x_feat, x_feat, key_padding_mask=key_padding_mask
+        )
         
-        # Take only the feature-relevant portion
-        feature_attention = attention_weights[:, :self.num_features, :self.num_features]
-        #print(f"Feature attention shape: {feature_attention.shape}")
+        # Residual connection + layer norm.
+        x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
         
-        # Continue with the rest of the forward pass
-        attention_output = attention_output.transpose(1, 2)
-        x = x + self.dropout(attention_output)
+        # Feed-forward network on each feature token.
+        ffn_output = self.ffn(x_feat)
+        x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
-        normed_x = self.layer_norm2(x)
+        # Reshape back to (batch, seq_len, num_features * feature_dim)
+        out = x_feat.view(batch, seq_len, self.num_features * self.feature_dim)
         
-        batch_size, embed_dim, seq_len = normed_x.shape
-        reshaped_x = normed_x.transpose(1, 2).reshape(-1, embed_dim)
-        ffn_output = self.ffn(reshaped_x)
-        ffn_output = ffn_output.view(batch_size, seq_len, embed_dim).transpose(1, 2)
+        # Project back to the original embedding dimension.
+        out = self.out_proj(out)
         
-        x = x + self.dropout(ffn_output)
-        x = x.transpose(1, 2)
-        
-        return x, feature_attention
+        return out, attn_weights
 
 class TemporalAttentionBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout_rate):
@@ -83,15 +109,12 @@ class TemporalAttentionBlock(nn.Module):
             batch_first=True
         )
         self.layer_norm1 = nn.LayerNorm(embed_dim)
-        self.layer_norm2 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 4),
+            nn.Linear(embed_dim, embed_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim * 2),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 2, embed_dim)
             nn.Linear(embed_dim * 2, embed_dim)
         )
         
@@ -106,7 +129,7 @@ class TemporalAttentionBlock(nn.Module):
         
         x = x + self.dropout(attention_output)
         
-        normed_x = self.layer_norm2(x)
+        normed_x = self.layer_norm1(x)
         ffn_output = self.ffn(normed_x)
         x = x + self.dropout(ffn_output)
         
@@ -120,6 +143,7 @@ class AttentionDQN(nn.Module):
         self.seq_len, self.num_features = state_dim
         self.action_dim = action_dim
         self.embed_dim = embed_dim
+        print(f"Total features in state: {self.num_features}") 
         
         print(f"Initializing AttentionDQN with dimensions: seq_len={self.seq_len}, num_features={self.num_features}")
         
@@ -143,16 +167,13 @@ class AttentionDQN(nn.Module):
         # Feature blocks now get num_features parameter
         self.feature_blocks = nn.ModuleList([
             FeatureAttentionBlock(embed_dim, num_heads, dropout_rate, self.num_features)
-            for _ in range(self.config.TRAINING_PARMS.get('NUM_FEATURE_LAYERS'))
+            for _ in range(1)
         ])
         
         self.final_norm = nn.LayerNorm(embed_dim)
         
         self.q_values = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 4),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.Linear(embed_dim, embed_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(embed_dim * 2, embed_dim),
@@ -218,3 +239,4 @@ class AttentionDQN(nn.Module):
         q_values = self.q_values(x)
         
         return q_values, (temporal_weights, feature_weights)
+    
