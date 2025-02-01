@@ -95,9 +95,9 @@ class SegmentRiskMetrics:
         rel_strength = calculate_relative_strength(prices, current_idx)
         
         # Combine metrics into multiplier
-        vol_factor = 1.0   # Lower volatility = higher multiplier
-        sharpe_factor = 1 # Scale Sharpe to [0,1]
-        strength_factor = 1  # Scale strength to [0,1]
+        vol_factor = 1.1   # Lower volatility = higher multiplier
+        sharpe_factor = 1.1 # Scale Sharpe to [0,1]
+        strength_factor = 1.1  # Scale strength to [0,1]
         
         # Weighted combination
         multiplier = (0.4 * vol_factor + 
@@ -119,14 +119,14 @@ class MarketEnv:
         self.max_hold_steps = max_hold_steps
         
         # Constants for window sizes
-        self.RETURNS_WINDOW_SIZE = 30
+        self.RETURNS_WINDOW_SIZE = 20
         
         self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
-        self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
-        self.VOLATILITY_WINDOW = 30  # For calculating rolling volatility
+        self.SHARPE_WINDOW = 20  # For calculating rolling Sharpe ratio
+        self.VOLATILITY_WINDOW = 20  # For calculating rolling volatility
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
