@@ -111,7 +111,7 @@ class DQNLogger:
                     elif len(temp_weights.shape) < 2:
                         continue
                     
-                    fig = plt.figure(figsize=(40, 40))
+                    fig = plt.figure(figsize=(20, 20))
                     sns.heatmap(temp_weights, cmap='viridis')
                     plt.title(f'Temporal Attention Pattern (Layer {layer_idx + 1})')
                     plt.xlabel('Time Steps')
@@ -119,10 +119,10 @@ class DQNLogger:
                     
                     # Save visualization
                     buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=150)
+                    plt.savefig(buf, format='png', dpi=100)
                     buf.seek(0)
                     image = Image.open(buf)
-                    image = image.resize((2000, 2000))
+                    image = image.resize((1000, 1000))
                     self.writer.add_image(f'attention/temporal_layer_{layer_idx + 1}', 
                                         np.array(image).transpose(2, 0, 1), 
                                         self.step)
@@ -144,7 +144,7 @@ class DQNLogger:
                     
                     # Only visualize if dimensions match feature count
                     if feat_weights.shape[0] == len(self.feature_names):
-                        fig = plt.figure(figsize=(40, 40))
+                        fig = plt.figure(figsize=(20, 20))
                         sns.heatmap(feat_weights, cmap='viridis',
                                 xticklabels=self.feature_names,
                                 yticklabels=self.feature_names)
@@ -157,7 +157,7 @@ class DQNLogger:
                         plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
                         buf.seek(0)
                         image = Image.open(buf)
-                        image = image.resize((2000, 2000))
+                        image = image.resize((1500, 1500))
                         self.writer.add_image(f'attention/feature_layer_{layer_idx + 1}', 
                                             np.array(image).transpose(2, 0, 1), 
                                             self.step)
@@ -216,7 +216,7 @@ class DQNLogger:
                     pos = np.arange(len(sorted_idx))
                 
                     # Create visualization
-                    fig = plt.figure(figsize=(40, 40))
+                    fig = plt.figure(figsize=(20, 20))
                     plt.barh(pos, feature_importance[sorted_idx], height=0.8)
                     plt.yticks(pos, np.array(feature_names)[sorted_idx], fontsize=18)
                     plt.xlabel('Average Attention Weight', fontsize=20)
@@ -226,10 +226,10 @@ class DQNLogger:
                 
                     # Save and cleanup
                     buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=140, bbox_inches='tight')
+                    plt.savefig(buf, format='png', dpi=50, bbox_inches='tight')
                     buf.seek(0)
                     image = Image.open(buf)
-                    image = image.resize((1500, 1500))
+                    image = image.resize((700, 700))
                     self.writer.add_image(f'feature_importance/layer_{layer_idx + 1}', 
                                     np.array(image).transpose(2, 0, 1), 
                                     self.step)
@@ -325,7 +325,7 @@ class DQNLogger:
             plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
             buf.seek(0)
             image = Image.open(buf)
-            image = image.resize((800, 600))
+            image = image.resize((600, 400))
             self.writer.add_image('performance/pnl_trend', 
                                 np.array(image).transpose(2, 0, 1), 
                                 self.step)
@@ -365,7 +365,6 @@ class DQNLogger:
                 avg_importance = importance_matrix.mean(axis=0)
                 top_indices = np.argsort(avg_importance)[-20:]
             
-                # Create heatmap
                 fig = plt.figure(figsize=(40, 40))
                 sns.heatmap(importance_matrix[:, top_indices].T, 
                         xticklabels=[f'Layer {i+1}' for i in range(n_layers)],
@@ -379,10 +378,10 @@ class DQNLogger:
                 plt.yticks(rotation=0, fontsize=12)
                 # Save plot
                 buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=160, bbox_inches='tight')
+                plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
                 buf.seek(0)
                 image = Image.open(buf)
-                image = image.resize((2200, 2200))
+                image = image.resize((1000, 1000))
                 self.writer.add_image('feature_importance/layer_comparison', 
                                 np.array(image).transpose(2, 0, 1), 
                                 self.step)

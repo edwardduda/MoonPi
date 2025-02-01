@@ -26,7 +26,6 @@ class EpsilonMatchingLRScheduler(_LRScheduler):
         # Make sure we have valid values
         if self._step_count is None:
             return [self.initial_lr for _ in self.optimizer.param_groups]
-
         # Warmup phase
         if self._step_count < self.warmup_steps:
             warmup_factor = float(self._step_count) / float(max(1, self.warmup_steps))
@@ -41,10 +40,11 @@ class EpsilonMatchingLRScheduler(_LRScheduler):
                 (self.epsilon_decay ** float(post_warmup_steps))
             )
             
-            # Scale learning rate between initial and minimum
-            lr_range = self.initial_lr - self.min_lr
-            lr = self.min_lr + (lr_range * decay_factor)
-
+            self.current_lr *= self.epsilon_decay
+            
+        if self.current_lr <= self.min_lr:
+            self.current_lr = self.initial_lr * 0.8
+            
         self.current_lr = float(lr)  # Ensure we're working with floats
         return [self.current_lr for _ in self.optimizer.param_groups]
 
