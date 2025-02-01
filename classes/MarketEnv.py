@@ -95,9 +95,9 @@ class SegmentRiskMetrics:
         rel_strength = calculate_relative_strength(prices, current_idx)
         
         # Combine metrics into multiplier
-        vol_factor = 1.0 / (1.0 + volatility)  # Lower volatility = higher multiplier
-        sharpe_factor = 0.5 * (1.0 + np.tanh(local_sharpe))  # Scale Sharpe to [0,1]
-        strength_factor = 0.5 * (1.0 + np.tanh(2.0 * rel_strength))  # Scale strength to [0,1]
+        vol_factor = 1.0   # Lower volatility = higher multiplier
+        sharpe_factor = 1 # Scale Sharpe to [0,1]
+        strength_factor = 1  # Scale strength to [0,1]
         
         # Weighted combination
         multiplier = (0.4 * vol_factor + 
@@ -119,14 +119,14 @@ class MarketEnv:
         self.max_hold_steps = max_hold_steps
         
         # Constants for window sizes
-        self.RETURNS_WINDOW_SIZE = 20
+        self.RETURNS_WINDOW_SIZE = 30
         
         self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
         self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
-        self.VOLATILITY_WINDOW = 20  # For calculating rolling volatility
+        self.VOLATILITY_WINDOW = 30  # For calculating rolling volatility
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
@@ -264,8 +264,8 @@ class MarketEnv:
             
             # Add portfolio state features
             portfolio_state = np.array([
-                self.cash / self.initial_capital,
-                float(self.holding)
+                float(self.holding),
+                self.cash / self.initial_capital
             ])
             
             # Combine market features with portfolio and risk state
@@ -396,10 +396,10 @@ class MarketEnv:
         # Execute action using original prices
         if action == 1:  # Buy
             if self.holding:
-                reward = -2.5 * (1 + volatility)
+                reward = -3.5 * (1 + volatility)
                 action_taken = "Invalid Buy - Already Holding"
             elif self.cash < (original_close + self.trading_fee):  # Check using original price
-                reward = -3.5 * (1 + volatility)
+                reward = -2.5 * (1 + volatility)
                 action_taken = "Invalid Buy - Insufficient Cash"
             elif self.trades_per_month >= self.max_trades_per_month:
                 reward = -1.5 * (1 + volatility)

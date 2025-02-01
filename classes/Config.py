@@ -17,7 +17,7 @@ class Config:
         'GAMMA' : 0.99,
         'TAU' : 0.08,
         'EMBED_DIM' : 384,
-        'NUM_HEADS' : 24,
+        'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
         'NUM_TEMPORAL_LAYERS' : 2,
@@ -35,7 +35,7 @@ class Config:
         'MAX_HOLD_STEPS' : 21,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.60,
-        'MAX_TRADES_PER_MONTH' : 8,
+        'MAX_TRADES_PER_MONTH' : 15,
         }
         
 

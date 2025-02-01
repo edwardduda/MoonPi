@@ -15,6 +15,15 @@ class FeatureAttentionBlock(nn.Module):
             dropout=dropout_rate,
             batch_first=True
         )
+        
+        # Holding attention
+        self.holding_attention = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=2,
+            dropout=dropout_rate,
+            batch_first=True
+        )
+        
         self.layer_norm1 = nn.LayerNorm([embed_dim, config.DATA_CONFIG.get('SEGMENT_SIZE')])
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
@@ -24,41 +33,30 @@ class FeatureAttentionBlock(nn.Module):
             nn.Linear(embed_dim * 2, embed_dim)
         )
         
+        
     def forward(self, x):
-        # Add debug prints
-        #print(f"Input shape: {x.shape}")
-        temperature = 0.3
-        # Transpose to (batch_size, embed_dim, seq_len)
         x = x.transpose(1, 2)
-        #print(f"After first transpose shape: {x.shape}")
-        
-        # Layer norm
         normed_x = self.layer_norm1(x)
-        # Transpose back for attention
         normed_x = normed_x.transpose(1, 2)
-        #print(f"Before attention shape: {normed_x.shape}")
         
-        # Apply attention
+        # Regular attention
         attention_output, attention_weights = self.attention(normed_x, normed_x, normed_x)
-        #print(f"Attention weights shape: {attention_weights.shape}")
         
-        # Process attention weights to get feature attention
-        # If attention_weights is 2D, reshape it appropriately
-        if len(attention_weights.shape) == 2:
-            # Reshape to (batch_size, seq_len, seq_len)
-            seq_len = attention_weights.size(1)
-            attention_weights = attention_weights.view(-1, seq_len, seq_len)
+        # Holding attention - use internally but don't return weights
+        holding_state = normed_x[:, :, 0:1].expand(-1, -1, normed_x.size(-1))
+        holding_output, _ = self.holding_attention(holding_state, normed_x, normed_x)
         
-        # Take only the feature-relevant portion
+        # Combine outputs
+        combined_output = attention_output + holding_output
+        
+        # Process feature attention
         feature_attention = attention_weights[:, :self.num_features, :self.num_features]
-        #print(f"Feature attention shape: {feature_attention.shape}")
-        feature_attention = F.softmax(feature_attention / temperature, dim=1)
-        # Continue with the rest of the forward pass
-        attention_output = attention_output.transpose(1, 2)
-        x = x + self.dropout(attention_output)
+        
+        # Continue with regular processing
+        combined_output = combined_output.transpose(1, 2)
+        x = x + self.dropout(combined_output)
         
         normed_x = self.layer_norm1(x)
-        
         batch_size, embed_dim, seq_len = normed_x.shape
         reshaped_x = normed_x.transpose(1, 2).reshape(-1, embed_dim)
         ffn_output = self.ffn(reshaped_x)
@@ -67,6 +65,7 @@ class FeatureAttentionBlock(nn.Module):
         x = x + self.dropout(ffn_output)
         x = x.transpose(1, 2)
         
+        # Just return feature_attention
         return x, feature_attention
 
 class TemporalAttentionBlock(nn.Module):
@@ -111,6 +110,7 @@ class AttentionDQN(nn.Module):
         self.seq_len, self.num_features = state_dim
         self.action_dim = action_dim
         self.embed_dim = embed_dim
+        print(f"Total features in state: {self.num_features}") 
         
         print(f"Initializing AttentionDQN with dimensions: seq_len={self.seq_len}, num_features={self.num_features}")
         
