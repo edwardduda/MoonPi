@@ -3,7 +3,7 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-        'SEGMENT_SIZE' : int(90), #time window size      252 = 1 fiscal year
+        'SEGMENT_SIZE' : int(100), #time window size      252 = 1 fiscal year
         'DATASET_CSV' : "full_df.csv",
         'NUM_FEATURES' : None
         }
@@ -18,9 +18,9 @@ class Config:
         'GAMMA' : 0.994,
         'MIN_LR' : 1e-5,
         'GAMMA' : 0.994,
-        'TAU' : 0.08,
+        'TAU' : 0.06,
         'EMBED_DIM' : 384,
-        'NUM_HEADS' : 12,
+        'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
         'NUM_FEATURE_LAYERS' : 1,

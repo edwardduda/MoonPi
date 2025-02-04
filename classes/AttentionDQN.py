@@ -13,39 +13,37 @@ class FeatureAttentionBlock(nn.Module):
             num_heads: Number of attention heads for feature attention.
             dropout_rate: Dropout rate applied after attention and FFN layers.
         """
-        # Here we set the feature dimension to 12 (you can adjust as needed)
-        feature_dim = 12
+        feature_dim = 16
         super().__init__()
         self.num_features = num_features 
         self.feature_dim = feature_dim
         
-        # Project the per-time-step embedding into a feature-level representation.
-        # This transforms each [embed_dim] vector into a vector of size (num_features * feature_dim),
-        # which we then reshape to [num_features, feature_dim].
         self.proj = nn.Linear(embed_dim, num_features * feature_dim)
         
-        # Multihead attention that operates over the feature tokens.
         self.attention = nn.MultiheadAttention(
             embed_dim=feature_dim,
             num_heads=num_heads,
             dropout=dropout_rate,
-            batch_first=True  # We'll be working with (batch, tokens, feature_dim)
+            batch_first=True
         )
         
-        # A simple feed-forward network applied on each feature token.
         self.ffn = nn.Sequential(
-            nn.Linear(feature_dim, feature_dim * 2),
+            nn.Linear(feature_dim, feature_dim * 8),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(feature_dim * 8, feature_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(feature_dim * 4, feature_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(feature_dim * 2, feature_dim)
         )
         
-        # Layer norms for residual connections.
         self.layer_norm1 = nn.LayerNorm(feature_dim)
         self.layer_norm2 = nn.LayerNorm(feature_dim)
         self.dropout = nn.Dropout(dropout_rate)
         
-        # Optionally, a final projection back to embed_dim.
         self.out_proj = nn.Linear(num_features * feature_dim, embed_dim)
         
         # Layer norms for residual connections.
@@ -57,44 +55,22 @@ class FeatureAttentionBlock(nn.Module):
         self.out_proj = nn.Linear(num_features * feature_dim, embed_dim)
         
     def forward(self, x):
-        """
-        Args:
-            x: Tensor of shape (batch, seq_len, embed_dim)
-        Returns:
-            out: Tensor of shape (batch, seq_len, embed_dim) after feature attention.
-            attn_weights: The attention weights from the multihead attention (for inspection).
-        """
+
         batch, seq_len, _ = x.size()
         
-        # Project input: shape becomes (batch, seq_len, num_features * feature_dim)
         x_proj = self.proj(x)
-        
-        # Reshape to have a token for each feature:
-        # New shape: (batch * seq_len, num_features, feature_dim)
+
         x_feat = x_proj.view(batch * seq_len, self.num_features, self.feature_dim)
+
+        attn_output, attn_weights = self.attention(x_feat, x_feat, x_feat)
         
-        # Create a key padding mask.
-        # For each token (i.e. each feature vector), if the absolute sum is nearly zero, mark it as padded.
-        # This mask should have shape (batch * seq_len, num_features) and be of type bool.
-        key_padding_mask = (x_feat.abs().sum(dim=-1) < 1e-6)
-        
-        # Pass the mask to the multihead attention module.
-        # Tokens flagged in the key_padding_mask will be ignored in the attention computation.
-        attn_output, attn_weights = self.attention(
-            x_feat, x_feat, x_feat, key_padding_mask=key_padding_mask
-        )
-        
-        # Residual connection + layer norm.
         x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
-        
-        # Feed-forward network on each feature token.
+
         ffn_output = self.ffn(x_feat)
         x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
-        # Reshape back to (batch, seq_len, num_features * feature_dim)
         out = x_feat.view(batch, seq_len, self.num_features * self.feature_dim)
         
-        # Project back to the original embedding dimension.
         out = self.out_proj(out)
         
         return out, attn_weights
@@ -109,9 +85,13 @@ class TemporalAttentionBlock(nn.Module):
             batch_first=True
         )
         self.layer_norm1 = nn.LayerNorm(embed_dim)
+        self.layer_norm2 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout_rate)
         self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 2),
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 4, embed_dim * 2),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(embed_dim * 2, embed_dim)
@@ -119,17 +99,12 @@ class TemporalAttentionBlock(nn.Module):
         )
         
     def forward(self, x):
-        # Add debug prints
-        #print(f"Temporal input shape: {x.shape}")
-        
-        # x shape: (batch_size, seq_len, embed_dim)
         normed_x = self.layer_norm1(x)
         attention_output, attention_weights = self.attention(normed_x, normed_x, normed_x)
-        #print(f"Temporal attention weights shape: {attention_weights.shape}")
         
         x = x + self.dropout(attention_output)
         
-        normed_x = self.layer_norm1(x)
+        normed_x = self.layer_norm2(x)
         ffn_output = self.ffn(normed_x)
         x = x + self.dropout(ffn_output)
         
@@ -221,14 +196,14 @@ class AttentionDQN(nn.Module):
         for block in self.temporal_blocks:
             x, weights = block(x)
             temporal_weights.append(weights)
-            x = x.masked_fill(zero_mask, 0.0)
+            #x = x.masked_fill(zero_mask, 0.0)
         
         # Apply feature attention
         feature_weights = []
         for block in self.feature_blocks:
             x, weights = block(x)
             feature_weights.append(weights)
-            x = x.masked_fill(zero_mask, 0.0)
+            #x = x.masked_fill(zero_mask, 0.0)
         
         # Global average pooling
         valid_tokens = (~zero_mask).float()
