@@ -4,7 +4,11 @@ import CandlestickChart from "./CandlestickChart";
 
 const EpisodeVisualizer = () => {
   const [episodeData, setEpisodeData] = useState([]);
+<<<<<<< HEAD
   const [selectedEpisode, setSelectedEpisode] = useState(900);
+=======
+  const [selectedEpisode, setSelectedEpisode] = useState(392);
+>>>>>>> refs/remotes/origin/fix_attention
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -53,6 +57,7 @@ const EpisodeVisualizer = () => {
           close: step.close || 0,
           timeStep: `t${index}`,
           basedOnState: index > 0 ? `t${index-1}` : null,
+          sharpe_ratio: step.sharpe_ratio || 0,
         };
       });
 

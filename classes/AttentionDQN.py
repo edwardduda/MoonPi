@@ -95,7 +95,6 @@ class TemporalAttentionBlock(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(embed_dim * 2, embed_dim)
-            nn.Linear(embed_dim * 2, embed_dim)
         )
         
     def forward(self, x):

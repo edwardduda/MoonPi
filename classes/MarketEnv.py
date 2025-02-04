@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from numba import jit
 from typing import Tuple
+from classes.MarketEnvJit import MarketEnvJit
 
 @jit(nopython=True, cache=True)
 def normalize_reward(reward):
@@ -43,7 +44,7 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
 @jit(nopython=True, cache=True)
 def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
     # Calculate raw PnL percentage
-    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
+    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-8)) * position_size
         
     # Calculate trade costs
     trade_cost_pct = (trading_fee * 2) / portfolio_value
@@ -75,7 +76,7 @@ class MarketEnv:
         self.max_hold_steps = max_hold_steps
         
         # Constants for window sizes
-        self.RETURNS_WINDOW_SIZE = 20
+        self.RETURNS_WINDOW_SIZE = 40
         
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
@@ -85,6 +86,9 @@ class MarketEnv:
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
+        
+        self.risk_metrics = (0.0, 0.0, 0.0)
+        
         # Get feature dimensions (excluding Close and Ticker)
         self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
@@ -249,6 +253,12 @@ class MarketEnv:
         # Get new segment
         self.data = self.shuffled_segments.pop()
         
+        self.epi_norm_close_np = self.data["Close"].to_numpy()  # Normalized price for state
+        self.epi_orig_close_np = self.data["Close-orig"].to_numpy()  # Original price for PnL
+        self.epi_open_orig_np = self.data["Open-orig"].to_numpy()
+        self.epi_high_orig_np= self.data["High-orig"].to_numpy()
+        self.epi_low_orig_np = self.data["Low-orig"].to_numpy()
+        
         # Reset all window arrays
         self.price_window.fill(0)
         self.feature_window.fill(0)
@@ -261,7 +271,7 @@ class MarketEnv:
         self.windows_filled = False
         
         # Initialize with first values
-        initial_price = self.data.iloc[0]["Close"]
+        initial_price = self.epi_norm_close_np[0]
         initial_features = self.data[self.feature_columns].iloc[0].values
         initial_date = self.data.index[0]
         
@@ -281,17 +291,17 @@ class MarketEnv:
         self.trades_per_month = 0
 
         return self.get_state()
-
+        
     def step(self, action: int):
         # Check if episode is done
         done = self.current_step >= len(self.data) - 1
         
         # Get both normalized and original prices
-        norm_price = self.data.iloc[self.current_step]["Close"]  # Normalized price for state
-        original_close = self.data.iloc[self.current_step]["Close-orig"]  # Original price for PnL
-        original_open = self.data.iloc[self.current_step]["Open-orig"]
-        original_high = self.data.iloc[self.current_step]["High-orig"]
-        original_low = self.data.iloc[self.current_step]["Low-orig"]
+        norm_price = self.epi_norm_close_np[self.current_step]  # Normalized price for state
+        original_close = self.epi_orig_close_np[self.current_step] # Original price for PnL
+        original_open = self.epi_open_orig_np[self.current_step]
+        original_high = self.epi_high_orig_np[self.current_step]
+        original_low = self.epi_low_orig_np[self.current_step]
         
         current_features = self.data[self.feature_columns].iloc[self.current_step].values
         current_date = self.data.index[self.current_step]
@@ -355,15 +365,12 @@ class MarketEnv:
                 action_taken = "Invalid Buy - Trade Limit Exceeded"
             else:
                 # Execute Buy with original price
+                trade_cost_pct = (self.trading_fee / self.portfolio_value)
+                reward = -trade_cost_pct
                 self.holding = True
                 self.entry_price = original_close  # Store original entry price
                 self.cash -= (original_close + self.trading_fee)
                 self.trades_per_month += 1
-                
-                # Calculate trade cost percentage based on original values
-                trade_cost_pct = self.trading_fee / self.portfolio_value
-                reward = -trade_cost_pct
-                action_taken = "Buy"
 
         elif action == 2:  # Sell
             if not self.holding:
@@ -382,7 +389,7 @@ class MarketEnv:
                     self.returns_window
                 )
                 
-                # Execute Sell with original price
+                # Execute Sell with modified reward
                 self.cash += (original_close - self.trading_fee)
                 self.holding = False
                 self.trades_per_month += 1
@@ -393,7 +400,7 @@ class MarketEnv:
                 # Use risk-adjusted PnL for reward
                 base_reward = risk_adjusted_pnl
                 
-                # Apply duration factor based on holding duration
+                # Apply Sharpe multiplier and duration factors
                 optimal_hold_duration = max(1, int(10 * (1 - volatility)))
                 duration_factor = np.exp(-0.5 * ((self.consecutive_holds - optimal_hold_duration) / optimal_hold_duration) ** 2)
                 reward = base_reward * duration_factor
@@ -405,7 +412,6 @@ class MarketEnv:
                     reward *= 0.9
 
                 self.consecutive_holds = 0
-                action_taken = "Sell"
 
         else:  # Hold
             if self.holding:
@@ -423,7 +429,7 @@ class MarketEnv:
                 hold_penalty = self.hold_penalty * (1.1 ** min(self.consecutive_holds, self.max_hold_steps))
                 reward -= hold_penalty
 
-                # Penalize if holding too long
+                # Additional penalty for holding too long
                 max_optimal_hold = max(1, int(self.max_hold_steps * (1 + volatility)))
                 if self.consecutive_holds > max_optimal_hold:
                     reward -= 0.05 * (self.consecutive_holds - max_optimal_hold)
