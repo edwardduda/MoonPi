@@ -40,7 +40,7 @@ class Training:
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
-        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=50, attention_freq=50, histogram_freq=50, buffer_size=100)
+        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=200, attention_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), histogram_freq=500, buffer_size=500)
         feature_names = []
         feature_names = [col for col in env.feature_columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         feature_names.extend([
@@ -184,7 +184,7 @@ class Training:
             # Take action and get next state
             next_state, reward, done, info = self.env.step(action)
             
-            risk_metrics = self.env.calculate_risk_metrics(info['current_price'])
+            sharpe, volatility, rel_strength = self.env.calculate_risk_metrics(info['current_price'])
             # Only log step data if replay buffer is filled
             if len(self.replay_buffer) >= self.min_replay_size:
                 self.episode_logger.log_step(
@@ -201,9 +201,9 @@ class Training:
                         'low': info.get('low'),    # Low price
                         'close': info.get('close'), # Close price
                         'date': info.get('date'),
-                        'sharpe_ratio': risk_metrics['sharpe'],
-                        'volatility': risk_metrics['volatility'],
-                        'relative_strength': risk_metrics['rel_strength']
+                        'sharpe_ratio': sharpe,
+                        'volatility': volatility,
+                        'relative_strength': rel_strength
                     }
                 )
 
