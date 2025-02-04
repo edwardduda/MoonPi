@@ -10,10 +10,12 @@ from collections import deque
 import gc
 import logging
 import scipy
+from classes.Config import Config
 
 class DQNLogger:
     def __init__(self, log_dir, scalar_freq, attention_freq, histogram_freq, buffer_size):
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.config = Config()
         self.writer = SummaryWriter(f"{log_dir}/{timestamp}")
         self.step = 0
         self.scalar_freq = scalar_freq
@@ -32,7 +34,7 @@ class DQNLogger:
         self.temporal_attention_buffer = None
         self.feature_attention_buffer = None
         self.attention_buffer_count = 0
-        self.max_attention_samples = 1000  # Number of samples to average over
+        self.max_attention_samples = self.config.DATA_CONFIG.get('SEGMENT_SIZE')
         
         
     def initialize_attention_buffers(self, temporal_weights, feature_weights):
@@ -122,7 +124,7 @@ class DQNLogger:
                     plt.savefig(buf, format='png', dpi=150)
                     buf.seek(0)
                     image = Image.open(buf)
-                    image = image.resize((2000, 2000))
+                    image = image.resize((800, 800))
                     self.writer.add_image(f'attention/temporal_layer_{layer_idx + 1}', 
                                         np.array(image).transpose(2, 0, 1), 
                                         self.step)
@@ -157,7 +159,7 @@ class DQNLogger:
                         plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
                         buf.seek(0)
                         image = Image.open(buf)
-                        image = image.resize((2000, 2000))
+                        image = image.resize((1200, 1200))
                         self.writer.add_image(f'attention/feature_layer_{layer_idx + 1}', 
                                             np.array(image).transpose(2, 0, 1), 
                                             self.step)
@@ -226,10 +228,10 @@ class DQNLogger:
                 
                     # Save and cleanup
                     buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=140, bbox_inches='tight')
+                    plt.savefig(buf, format='png', dpi=70, bbox_inches='tight')
                     buf.seek(0)
                     image = Image.open(buf)
-                    image = image.resize((1500, 1500))
+                    image = image.resize((800, 800))
                     self.writer.add_image(f'feature_importance/layer_{layer_idx + 1}', 
                                     np.array(image).transpose(2, 0, 1), 
                                     self.step)
