@@ -1,4 +1,3 @@
-
 class EpsilonSchedule:
     def __init__(self, start, end, decay):
         self.start = start
@@ -8,11 +7,13 @@ class EpsilonSchedule:
         self.steps = 0
         
     def step(self) -> float:
+        if self.epsilon == 0.6:
+            self.decay == 0.999995
         self.epsilon = max(self.end, self.epsilon * self.decay)
         self.steps += 1
         
         if(self.epsilon == self.end):
-            self.epsilon = 0.35
+            self.epsilon = 0.3
         return self.epsilon
     
     def reset(self):

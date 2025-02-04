@@ -42,7 +42,8 @@ class Training:
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
-        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=400, attention_freq=400, histogram_freq=400, buffer_size=500)
+
+        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), attention_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), histogram_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), buffer_size=config.DATA_CONFIG.get("SEGMENT_SIZE"))
         feature_names = []
         feature_names = [col for col in env.feature_columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         feature_names.extend([
@@ -186,7 +187,11 @@ class Training:
             # Take action and get next state
             next_state, reward, done, info = self.env.step(action)
             
+<<<<<<< HEAD
+            sharpe, volatility, rel_strength = self.env.calculate_risk_metrics(info['current_price'])
+=======
             sharpe_ratio, volatility, relative_strength = self.env.calculate_risk_metrics(info['current_price'])
+>>>>>>> refs/remotes/origin/fix_attention
             # Only log step data if replay buffer is filled
             if len(self.replay_buffer) >= self.min_replay_size:
                 self.episode_logger.log_step(
@@ -203,9 +208,15 @@ class Training:
                         'low': info.get('low'),    # Low price
                         'close': info.get('close'), # Close price
                         'date': info.get('date'),
+<<<<<<< HEAD
+                        'sharpe_ratio': sharpe,
+                        'volatility': volatility,
+                        'relative_strength': rel_strength
+=======
                         'sharpe_ratio': sharpe_ratio,
                         'volatility': volatility,
                         'relative_strength': relative_strength
+>>>>>>> refs/remotes/origin/fix_attention
                     }
                 )
 
