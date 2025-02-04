@@ -27,6 +27,7 @@ class Training:
         self.gamma=config.TRAINING_PARMS.get('GAMMA')
         self.tau=config.TRAINING_PARMS.get('TAU')
         self.learning_rate=config.TRAINING_PARMS.get('LEARNING_RATE')
+        self.min_lr=config.TRAINING_PARMS.get('MIN_LR')
         self.min_replay_size=config.TRAINING_PARMS.get('MIN_REPLAY_SIZE')
         self.device=config.TRAINING_PARMS.get('DEVICE')
         self.weight_decay=config.TRAINING_PARMS.get('WEIGHT_DECAY')
@@ -36,11 +37,13 @@ class Training:
         self.steps_per_episode=config.TRAINING_PARMS.get('STEPS_PER_EPISODE')
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
         
+        
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
-        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=200, attention_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), histogram_freq=500, buffer_size=500)
+
+        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), attention_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), histogram_freq=config.DATA_CONFIG.get("SEGMENT_SIZE"), buffer_size=config.DATA_CONFIG.get("SEGMENT_SIZE"))
         feature_names = []
         feature_names = [col for col in env.feature_columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         feature_names.extend([
@@ -56,7 +59,7 @@ class Training:
         self.scheduler = EpsilonMatchingLRScheduler(
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
-            min_lr=self.learning_rate * 0.2,  # 10% of initial learning rate
+            min_lr=self.min_lr, 
             warmup_steps=min(self.min_replay_size // 10, 2000),
             epsilon_decay=self.epsilon_decay,
             epsilon_min=self.epsilon_end
@@ -184,7 +187,11 @@ class Training:
             # Take action and get next state
             next_state, reward, done, info = self.env.step(action)
             
+<<<<<<< HEAD
             sharpe, volatility, rel_strength = self.env.calculate_risk_metrics(info['current_price'])
+=======
+            sharpe_ratio, volatility, relative_strength = self.env.calculate_risk_metrics(info['current_price'])
+>>>>>>> refs/remotes/origin/fix_attention
             # Only log step data if replay buffer is filled
             if len(self.replay_buffer) >= self.min_replay_size:
                 self.episode_logger.log_step(
@@ -201,9 +208,15 @@ class Training:
                         'low': info.get('low'),    # Low price
                         'close': info.get('close'), # Close price
                         'date': info.get('date'),
+<<<<<<< HEAD
                         'sharpe_ratio': sharpe,
                         'volatility': volatility,
                         'relative_strength': rel_strength
+=======
+                        'sharpe_ratio': sharpe_ratio,
+                        'volatility': volatility,
+                        'relative_strength': relative_strength
+>>>>>>> refs/remotes/origin/fix_attention
                     }
                 )
 
@@ -243,6 +256,7 @@ class Training:
         
         self.episodes_done += 1
         return episode_reward
+    
     def train(self, should_exit_flag=None):
         try:
             for episode_num in self.episode_progress_bar:

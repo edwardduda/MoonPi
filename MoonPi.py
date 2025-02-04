@@ -75,7 +75,7 @@ def main():
             return
         
         # Initialize environment
-        #print(full_df.shape)
+        print(full_df.shape)
         env = MarketEnv(data=full_df,
         initial_capital=config.MARKET_ENV_PARMS.get("INITIAL_CAPITAL"),
         max_trades_per_month=config.MARKET_ENV_PARMS.get("MAX_TRADES_PER_MONTH"),
@@ -96,7 +96,6 @@ def main():
         config=config,
         )
         
-    
         training_module = Training(env=env,
         main_model=main_model,
         target_model=target_model,

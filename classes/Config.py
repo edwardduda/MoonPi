@@ -14,16 +14,24 @@ class Config:
         'BUFFER_SIZE' : 120000,
         'MIN_REPLAY_SIZE' : 90000,
         'LEARNING_RATE' : 1e-4,
-        'GAMMA' : 0.99,
+        'MIN_LR' : 1e-5,
+        'GAMMA' : 0.994,
+        'MIN_LR' : 1e-5,
+        'GAMMA' : 0.994,
         'TAU' : 0.06,
         'EMBED_DIM' : 384,
         'NUM_HEADS' : 16,
         'DROPOUT_RATE' : 0.1,
         'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
-        'NUM_TEMPORAL_LAYERS' : 2,
+        'NUM_FEATURE_LAYERS' : 1,
+        'NUM_TEMPORAL_LAYERS' : 1,
+        'NUM_FEATURE_LAYERS' : 1,
+        'NUM_TEMPORAL_LAYERS' : 1,
         'EPSILON_START': 1.0,
-        'EPSILON_END': 0.25,
-        'EPSILON_DECAY': 0.9995,
+        'EPSILON_END': 0.3,
+        'EPSILON_DECAY': 0.99995,
+        'EPSILON_END': 0.3,
+        'EPSILON_DECAY': 0.99995,
         'WEIGHT_DECAY' : 1e-5,
         'STEPS_PER_EPISODE' : self.DATA_CONFIG.get('SEGMENT_SIZE'),
         'MAX_GRADIENT_CLIP' : 1.0
@@ -37,7 +45,3 @@ class Config:
         'TRADING_FEE' : 0.60,
         'MAX_TRADES_PER_MONTH' : 15,
         }
-        
-
-        
-        
