@@ -1,6 +1,10 @@
+/classes/__pycache__
 /node_modules
 /public
 /runs
 /src
 *.json
 *.sh
+classes/.DS_Store
+full_df.csv
+.venv
