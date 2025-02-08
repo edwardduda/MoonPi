@@ -10,6 +10,10 @@ class EpsilonSchedule:
         # Decay epsilon monotonically until it reaches the floor (end)
         self.epsilon = max(self.end, self.epsilon * self.decay)
         self.steps += 1
+        
+        if self.epsilon == self.end:
+            self.epsilon = 0.35
+        
         return self.epsilon
     
     def reset(self):
