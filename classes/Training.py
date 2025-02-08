@@ -35,12 +35,13 @@ class Training:
         self.epsilon_end=config.TRAINING_PARMS.get('EPSILON_END')
         self.steps_per_episode=config.TRAINING_PARMS.get('STEPS_PER_EPISODE')
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
+        self.min_lr=config.TRAINING_PARMS.get('MIN_LEARNING_RATE')
         
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
-        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=50, attention_freq=50, histogram_freq=50, buffer_size=100)
+        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=config.DATA_CONFIG.get('SEGMENT_SIZE'), attention_freq=config.DATA_CONFIG.get('SEGMENT_SIZE'), histogram_freq=config.DATA_CONFIG.get('SEGMENT_SIZE'), buffer_size=config.DATA_CONFIG.get('SEGMENT_SIZE') * 2)
         feature_names = []
         feature_names = [col for col in env.feature_columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         feature_names.extend(['Portfolio_Cash', 'Holding_Flag', 'Sharpe_Ratio',
@@ -53,7 +54,7 @@ class Training:
         self.scheduler = EpsilonMatchingLRScheduler(
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
-            min_lr=self.learning_rate * 0.2,  # 10% of initial learning rate
+            min_lr=self.min_lr,
             warmup_steps=min(self.min_replay_size // 10, 2000),
             epsilon_decay=self.epsilon_decay,
             epsilon_min=self.epsilon_end

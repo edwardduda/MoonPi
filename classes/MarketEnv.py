@@ -95,9 +95,9 @@ class SegmentRiskMetrics:
         rel_strength = calculate_relative_strength(prices, current_idx)
         
         # Combine metrics into multiplier
-        vol_factor = 1.1   # Lower volatility = higher multiplier
-        sharpe_factor = 1.1 # Scale Sharpe to [0,1]
-        strength_factor = 1.1  # Scale strength to [0,1]
+        vol_factor = 1.05   # Lower volatility = higher multiplier
+        sharpe_factor = 1.05 # Scale Sharpe to [0,1]
+        strength_factor = 1.05  # Scale strength to [0,1]
         
         # Weighted combination
         multiplier = (0.4 * vol_factor + 
