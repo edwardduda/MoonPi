@@ -32,6 +32,7 @@ class Training:
         self.weight_decay=config.TRAINING_PARMS.get('WEIGHT_DECAY')
         self.epsilon_start=config.TRAINING_PARMS.get('EPSILON_START')
         self.epsilon_decay=config.TRAINING_PARMS.get('EPSILON_DECAY')
+        self.epsilon_reset=config.TRAINING_PARMS.get('EPSILON_RESET')
         self.epsilon_end=config.TRAINING_PARMS.get('EPSILON_END')
         self.steps_per_episode=config.TRAINING_PARMS.get('STEPS_PER_EPISODE')
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
@@ -57,9 +58,9 @@ class Training:
             min_lr=self.min_lr,
             warmup_steps=min(self.min_replay_size // 10, 2000),
             epsilon_decay=self.epsilon_decay,
-            epsilon_min=self.epsilon_end
+            epsilon_min=self.epsilon_end,
         )
-        self.epsilon_schedule = EpsilonSchedule(self.epsilon_start, self.epsilon_end, self.epsilon_decay)
+        self.epsilon_schedule = EpsilonSchedule(self.epsilon_start, self.epsilon_end, self.epsilon_decay, self.epsilon_reset)
 
         self.total_steps = 0
         self.episodes_done = 0

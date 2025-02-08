@@ -1,10 +1,11 @@
 class EpsilonSchedule:
-    def __init__(self, start, end, decay):
+    def __init__(self, start, end, decay, reset):
         self.start = start
         self.end = end
         self.decay = decay
         self.epsilon = start
         self.steps = 0
+        self.epsilon_reset = reset
         
     def step(self) -> float:
         # Decay epsilon monotonically until it reaches the floor (end)
@@ -12,8 +13,7 @@ class EpsilonSchedule:
         self.steps += 1
         
         if self.epsilon == self.end:
-            self.epsilon = 0.35
-        
+            self.epsilon = self.epsilon_reset
         return self.epsilon
     
     def reset(self):
