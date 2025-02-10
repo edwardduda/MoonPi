@@ -155,15 +155,6 @@ class MarketEnv:
         low = -np.inf * np.ones((self.segment_size, self.state_dim))
         self.observation_space = self.Box(low=low, high=high)
 
-    def _validate_trade(self, volatility, price_change):
-        """
-        Validate if a trade should be allowed based on volatility regime
-        """
-        base_threshold = 0.001  # 0.1% minimum price movement
-        min_price_move = base_threshold * (1 + volatility)
-        
-        return abs(price_change) >= min_price_move
-
     def _calculate_trend_alignment(self, price_history, action):
         """
         Calculate if action aligns with recent price trend
