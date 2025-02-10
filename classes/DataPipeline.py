@@ -427,7 +427,7 @@ def main():
 
     # Instantiate the DataPipeline class
     pipeline = DataPipeline(company_name="MultiCompany")
-
+    ticker_to_int = {ticker: i for i, ticker in enumerate(tickers_info.keys())}
     # Populate the dataset with the tickers_info
     pipeline.populate_dataset(tickers_info)
 
@@ -441,7 +441,7 @@ def main():
     all_data = []
     for ticker, df in pipeline.dataset.items():
         df_copy = df.copy()
-        df_copy['Ticker'] = ticker  # Add a Ticker column
+        df_copy['Ticker'] = ticker_to_int.get(ticker)  # Add a Ticker column
         all_data.append(df_copy)
 
     # Concatenate all DataFrames at once to avoid fragmentation
