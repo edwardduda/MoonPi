@@ -71,12 +71,7 @@ class SegmentRiskMetrics:
     def __init__(self, segment_size):
         self.segment_size = segment_size
         self.risk_free_rate = 0.02
-        
-    def calculate_segment_volatility(self, price_window):
-        """Calculate volatility within the current segment"""
-        returns = np.diff(price_window) / price_window[:-1]
-        return np.std(returns)
-        
+                
     def get_risk_reward_multiplier(self, segment_data, current_idx):
         """
         Calculate risk-adjusted reward multiplier using only information
@@ -87,13 +82,7 @@ class SegmentRiskMetrics:
             
         # Get data up to current index
         prices = segment_data.iloc[:current_idx+1]['Close'].values
-        returns = np.diff(prices) / prices[:-1]
-        
-        # Calculate metrics using only segment data
-        volatility = self.calculate_segment_volatility(prices)
-        local_sharpe = calculate_local_sharpe(returns)
-        rel_strength = calculate_relative_strength(prices, current_idx)
-        
+                
         # Combine metrics into multiplier
         vol_factor = 1.05   # Lower volatility = higher multiplier
         sharpe_factor = 1.05 # Scale Sharpe to [0,1]
