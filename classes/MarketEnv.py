@@ -78,11 +78,7 @@ class SegmentRiskMetrics:
         available within the current segment up to current_idx
         """
         if current_idx < 2:
-            return 1.0
-            
-        # Get data up to current index
-        prices = segment_data.iloc[:current_idx+1]['Close'].values
-                
+            return 1.0                
         # Combine metrics into multiplier
         vol_factor = 1.05   # Lower volatility = higher multiplier
         sharpe_factor = 1.05 # Scale Sharpe to [0,1]
