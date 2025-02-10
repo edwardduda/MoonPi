@@ -154,19 +154,6 @@ class MarketEnv:
         high = np.inf * np.ones((self.segment_size, self.state_dim))
         low = -np.inf * np.ones((self.segment_size, self.state_dim))
         self.observation_space = self.Box(low=low, high=high)
-
-    def _calculate_trend_alignment(self, price_history, action):
-        """
-        Calculate if action aligns with recent price trend
-        """
-        if len(price_history) < 5:
-            return 0.0
-            
-        recent_trend = (price_history[-1] - price_history[-5]) / price_history[-5]
-        
-        if (recent_trend > 0 and action == 1) or (recent_trend < 0 and action == 2):
-            return 1.0
-        return -0.5
     
     class ActionSpace:
         def __init__(self, n):
