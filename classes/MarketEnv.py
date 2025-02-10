@@ -3,13 +3,13 @@ import numpy as np
 from numba import jit
 from typing import Tuple
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def normalize_reward(reward):
     if abs(reward) > 1:
         return np.sign(reward) * np.log(1 + abs(reward))
     return reward
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
     """Calculate annualized Sharpe ratio"""
     if len(returns) < lookback:
@@ -24,7 +24,7 @@ def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
         
     return (avg_return - 0.02) / std_return
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
     """Calculate relative strength indicator"""
     if current_idx < window:
@@ -40,7 +40,7 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     
     return (current_price - avg_price) / avg_price
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
     # Calculate raw PnL percentage
     pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
@@ -60,12 +60,7 @@ def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_val
     else:
         risk_adjusted_pnl = net_pnl_pct
             
-    return {
-        'raw_pnl_pct': pnl_pct,
-        'trade_cost_pct': trade_cost_pct,
-        'net_pnl_pct': net_pnl_pct,
-        'risk_adjusted_pnl': risk_adjusted_pnl
-    }
+    return trade_cost_pct, net_pnl_pct, risk_adjusted_pnl
 
 class SegmentRiskMetrics:
     def __init__(self, segment_size):
@@ -384,7 +379,7 @@ class MarketEnv:
                 action_taken = "Invalid Sell - Trade Limit Exceeded"
             else:
                 # Calculate PnL metrics using original prices
-                pnl_metrics = calculate_pnl_metrics(
+                trade_cost_pct, net_pnl_pct, risk_adjusted_pnl = calculate_pnl_metrics(
                     original_close,
                     self.entry_price,
                     self.trading_fee,
@@ -401,7 +396,7 @@ class MarketEnv:
                 self.portfolio_value = self.cash
 
                 # Use risk-adjusted PnL for reward
-                base_reward = pnl_metrics['risk_adjusted_pnl']
+                base_reward = risk_adjusted_pnl
                 
                 # Apply duration factor based on holding duration
                 optimal_hold_duration = max(1, int(10 * (1 - volatility)))
@@ -409,7 +404,7 @@ class MarketEnv:
                 reward = base_reward * duration_factor
 
                 # Adjust reward based on actual PnL
-                if pnl_metrics['net_pnl_pct'] > 0:
+                if net_pnl_pct > 0:
                     reward *= 1.1
                 else:
                     reward *= 0.9
@@ -420,7 +415,7 @@ class MarketEnv:
         else:  # Hold
             if self.holding:
                 # Calculate PnL metrics using original prices
-                pnl_metrics = calculate_pnl_metrics(
+                trade_cost_pct, net_pnl_pct, risk_adjusted_pnl = calculate_pnl_metrics(
                     original_close,
                     self.entry_price,
                     self.trading_fee,
@@ -428,7 +423,7 @@ class MarketEnv:
                     self.returns_window
                 )
                 # Partial reward for holding
-                reward = 0.1 * pnl_metrics['net_pnl_pct']
+                reward = 0.1 * net_pnl_pct
                 # Apply hold penalty
                 hold_penalty = self.hold_penalty * (1.1 ** min(self.consecutive_holds, 20))
                 reward -= hold_penalty
