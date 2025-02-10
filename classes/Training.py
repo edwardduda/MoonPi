@@ -183,7 +183,7 @@ class Training:
             # Take action and get next state
             next_state, reward, done, info = self.env.step(action)
             
-            risk_metrics = self.env.calculate_risk_metrics(info['current_price'])
+            sharpe, volatility, rel_strength = self.env.calculate_risk_metrics(info['current_price'])
             # Only log step data if replay buffer is filled
             if len(self.replay_buffer) >= self.min_replay_size:
                 self.episode_logger.log_step(
@@ -200,9 +200,9 @@ class Training:
                         'low': info.get('low'),    # Low price
                         'close': info.get('close'), # Close price
                         'date': info.get('date'),
-                        'sharpe_ratio': risk_metrics['sharpe'],
-                        'volatility': risk_metrics['volatility'],
-                        'relative_strength': risk_metrics['rel_strength']
+                        'sharpe_ratio': sharpe,
+                        'volatility': volatility,
+                        'relative_strength': rel_strength
                     }
                 )
 

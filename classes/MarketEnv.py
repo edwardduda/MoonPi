@@ -218,33 +218,31 @@ class MarketEnv:
             self.feature_window[-1] = features
             
     def calculate_risk_metrics(self, current_price):
-        """Calculate various risk metrics for the current state"""
-        metrics = {}
         
         # Calculate rolling Sharpe ratio
         if len(self.returns_window) >= self.SHARPE_WINDOW:
             recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
-            metrics['sharpe'] = calculate_local_sharpe(recent_returns)
+            sharpe = calculate_local_sharpe(recent_returns)
         else:
-            metrics['sharpe'] = 0.0
+            sharpe = 0.0
             
         # Calculate rolling volatility
         if len(self.returns_window) >= self.VOLATILITY_WINDOW:
             recent_returns = self.returns_window[-self.VOLATILITY_WINDOW:]
-            metrics['volatility'] = np.std(recent_returns) * np.sqrt(252)  # Annualized
+            volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
         else:
-            metrics['volatility'] = 0.0
+            volatility = 0.0
             
         # Calculate relative strength
         if self.window_position > 0 or self.windows_filled:
-            metrics['rel_strength'] = calculate_relative_strength(
+            rel_strength = calculate_relative_strength(
                 self.price_window, 
                 self.window_position if not self.windows_filled else len(self.price_window) - 1
             )
         else:
-            metrics['rel_strength'] = 0.0
+            rel_strength = 0.0
             
-        return metrics
+        return sharpe, volatility, rel_strength
     def _shuffle_segments(self):
         if not self.shuffled_segments:
             self.shuffled_segments = self.segments.copy()
@@ -253,13 +251,11 @@ class MarketEnv:
     def get_state(self):
         try:
             # Calculate risk metrics
-            risk_metrics = self.calculate_risk_metrics(self.price_window[-1])
+            sharpe, volatility, rel_strength = self.calculate_risk_metrics(self.price_window[-1])
             
             # Create risk state features
             risk_state = np.array([
-                risk_metrics['sharpe'],
-                risk_metrics['volatility'],
-                risk_metrics['rel_strength']
+                sharpe, volatility, rel_strength
             ])
             
             # Add portfolio state features
