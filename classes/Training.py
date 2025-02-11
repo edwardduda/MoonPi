@@ -241,6 +241,9 @@ class Training:
             print(f"\nLogged episode {self.episodes_done} (replay buffer ready)")
         
         self.episodes_done += 1
+        
+        if self.episodes_done % 10 == 0:
+            self.logger.flush_to_tensorboard()
         return episode_reward
     def train(self, should_exit_flag=None):
         try:

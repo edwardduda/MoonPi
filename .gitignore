@@ -1,4 +1,5 @@
 /classes/__pycache__
+./classes/DataPipeline.py
 /node_modules
 /public
 /runs
