@@ -237,12 +237,7 @@ class DQNLogger:
             plt.ion()
     
     def flush_to_tensorboard(self):
-        """
-        Compile all offline logs into TensorBoard. This method processes scalars, histograms,
-        attention heatmaps, pnl trends, and feature importance visualizations.
-        """
         # Flush scalars
-        
         for metric, entries in self.offline_scalars.items():
             for step, value in entries:
                 self.writer.add_scalar(metric, value, step)
@@ -273,8 +268,8 @@ class DQNLogger:
                 image = Image.open(buf)
                 image = image.resize((1500, 1500))
                 self.writer.add_image(f'attention/temporal_layer_{layer_idx + 1}', 
-                                        np.array(image).transpose(2, 0, 1), 
-                                        step)
+                                    np.array(image).transpose(2, 0, 1), 
+                                    step)
                 plt.close(fig)
                 buf.close()
             # Feature attention heatmaps
@@ -298,8 +293,8 @@ class DQNLogger:
                     image = Image.open(buf)
                     image = image.resize((1500, 1500))
                     self.writer.add_image(f'attention/feature_layer_{layer_idx + 1}', 
-                                            np.array(image).transpose(2, 0, 1), 
-                                            step)
+                                        np.array(image).transpose(2, 0, 1), 
+                                        step)
                     plt.close(fig)
                     buf.close()
             gc.collect()
@@ -320,8 +315,8 @@ class DQNLogger:
             image = Image.open(buf)
             image = image.resize((800, 600))
             self.writer.add_image('performance/pnl_trend', 
-                                  np.array(image).transpose(2, 0, 1), 
-                                  self.step)
+                                np.array(image).transpose(2, 0, 1), 
+                                self.step)
             plt.close(fig)
             buf.close()
         
@@ -347,8 +342,8 @@ class DQNLogger:
             image = Image.open(buf)
             image = image.resize((1500, 1500))
             self.writer.add_image(f'feature_importance/layer_{layer_idx + 1}', 
-                                  np.array(image).transpose(2, 0, 1), 
-                                  step)
+                                np.array(image).transpose(2, 0, 1), 
+                                step)
             plt.close(fig)
             buf.close()
         
@@ -382,17 +377,27 @@ class DQNLogger:
             image = Image.open(buf)
             image = image.resize((1500, 1500))
             self.writer.add_image('feature_importance/layer_comparison', 
-                                  np.array(image).transpose(2, 0, 1), 
-                                  step)
+                                np.array(image).transpose(2, 0, 1), 
+                                step)
             plt.close(fig)
             buf.close()
         
+        # Optionally flush the reward scalar if there's data in the reward buffer
         if self.reward_buffer:
             last_reward = np.mean(self.reward_buffer)
             self.writer.add_scalar('training/reward', last_reward, self.step)
         
         # Finally, flush the writer
         self.writer.flush()
+        
+        # Clear all offline buffers to avoid re-logging the same data
+        self.offline_scalars.clear()
+        self.offline_histograms.clear()
+        self.offline_attention.clear()
+        self.offline_pnl.clear()
+        self.episode_pnls.clear()
+        self.offline_feature_importance.clear()
+        self.offline_feature_importance_heatmap.clear()
     
     def close(self):
         """Cleanup the writer."""
