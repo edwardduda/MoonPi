@@ -242,7 +242,7 @@ class Training:
         
         self.episodes_done += 1
         
-        if self.episodes_done % 10 == 0:
+        if self.episodes_done % 500 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
     def train(self, should_exit_flag=None):
