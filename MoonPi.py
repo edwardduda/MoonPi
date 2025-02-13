@@ -20,15 +20,13 @@ def signal_handler(signum, frame):
     should_exit = True
     
 def initialize_models(state_dim, action_dim, config):
+    print('made')
     main_model = AttentionDQN(
         state_dim= state_dim,
         action_dim= action_dim,
-        embed_dim=config.TRAINING_PARMS.get("EMBED_DIM"),
-        num_heads=config.TRAINING_PARMS.get("NUM_HEADS"),
-        dropout_rate=config.TRAINING_PARMS.get("DROPOUT_RATE"),
         batch_size=config.TRAINING_PARMS.get("BATCH_SIZE"),
         ).to(config.TRAINING_PARMS.get("DEVICE"))
-
+    print('successful made')
     target_model = copy.deepcopy(main_model).to(config.TRAINING_PARMS.get("DEVICE"))
     target_model.eval() 
 
