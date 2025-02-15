@@ -34,6 +34,7 @@ class DQNLogger:
         # Attention averaging buffers (updated each time, but plotting is delayed)
         self.temporal_attention_buffer = None
         self.feature_attention_buffer = None
+        self.technical_attention_buffer = None
         self.attention_buffer_count = 0
         self.max_attention_samples = 1000  # samples to average over
         
@@ -49,7 +50,7 @@ class DQNLogger:
         # Optionally, store feature names (used for attention heatmaps)
         self.feature_names = None
 
-    def initialize_attention_buffers(self, temporal_weights, feature_weights):
+    def initialize_attention_buffers(self, temporal_weights, feature_weights, technical_weights):
         """Initialize the attention buffers with proper shapes."""
         if self.temporal_attention_buffer is None:
             self.temporal_attention_buffer = [
@@ -61,11 +62,15 @@ class DQNLogger:
                 torch.zeros_like(layer_weights[0])
                 for layer_weights in feature_weights
             ]
+        if technical_weights is not None and self.technical_attention_buffer is None:
+            self.technical_attention_buffer = [
+                torch.zeros_like(layer_weights[0])
+                for layer_weights in technical_weights
+            ]
     
-    def update_attention_buffers(self, temporal_weights, feature_weights):
-        """Update the running average for attention weights."""
+    def update_attention_buffers(self, temporal_weights, feature_weights, technical_weights=None):
         with torch.no_grad():
-            self.initialize_attention_buffers(temporal_weights, feature_weights)
+            self.initialize_attention_buffers(temporal_weights, feature_weights, technical_weights)
             self.attention_buffer_count = min(self.attention_buffer_count + 1, self.max_attention_samples)
             alpha = 1.0 / self.attention_buffer_count
             # Update temporal attention buffers
@@ -74,7 +79,7 @@ class DQNLogger:
                     layer_weights = layer_weights[0]
                 self.temporal_attention_buffer[layer_idx] = (
                     (1 - alpha) * self.temporal_attention_buffer[layer_idx] +
-                    alpha * layer_weights[0]  # using first batch item
+                    alpha * layer_weights[0]
                 )
             # Update feature attention buffers
             for layer_idx, layer_weights in enumerate(feature_weights):
@@ -84,25 +89,39 @@ class DQNLogger:
                     (1 - alpha) * self.feature_attention_buffer[layer_idx] +
                     alpha * layer_weights[0]
                 )
+            # Update technical attention buffers (if provided)
+            if technical_weights is not None:
+                for layer_idx, layer_weights in enumerate(technical_weights):
+                    if isinstance(layer_weights, tuple):
+                        layer_weights = layer_weights[0]
+                    self.technical_attention_buffer[layer_idx] = (
+                        (1 - alpha) * self.technical_attention_buffer[layer_idx] +
+                        alpha * layer_weights[0]
+                    )
     
-    def log_attention_heatmaps(self, temporal_weights, feature_weights):
+    def log_attention_heatmaps(self, temporal_weights, feature_weights, technical_weights=None):
         """
-        Instead of generating heatmaps on the fly, update the running averages and
-        store a copy of the current attention buffers offline.
+        Updates running averages and stores a copy of the current attention buffers offline.
         """
         plt.ioff()
         try:
-            # Check that all weights are tensors
-            valid_weights = all(isinstance(w, torch.Tensor) for w in temporal_weights + feature_weights)
+            valid_weights = (
+                all(isinstance(w, torch.Tensor) for w in temporal_weights + feature_weights) and 
+                (technical_weights is None or all(isinstance(w, torch.Tensor) for w in technical_weights))
+            )
             if valid_weights:
-                self.update_attention_buffers(temporal_weights, feature_weights)
-                # Save copies for later processing
+                self.update_attention_buffers(temporal_weights, feature_weights, technical_weights)
                 temporal_copy = [buf.clone() for buf in self.temporal_attention_buffer]
                 feature_copy = [buf.clone() for buf in self.feature_attention_buffer]
+                technical_copy = (
+                    [buf.clone() for buf in self.technical_attention_buffer]
+                    if technical_weights is not None else None
+                )
                 self.offline_attention.append({
                     'step': self.step,
                     'temporal': temporal_copy,
-                    'feature': feature_copy
+                    'feature': feature_copy,
+                    'technical': technical_copy
                 })
             else:
                 logging.warning("Invalid attention weights provided; skipping offline logging.")
@@ -134,10 +153,9 @@ class DQNLogger:
                 with torch.no_grad():
                     avg_weights = layer_weights.detach().mean(dim=0).cpu().numpy()
                     feature_dim = avg_weights.shape[-1]
-                    if feature_dim != len(feature_names):
+                    if feature_dim != len(feature_names) - 11:
                         logging.warning(f"Feature dimension mismatch: got {feature_dim} vs expected {len(feature_names)}")
                         continue
-                    # Compute average importance across positions
                     feature_importance = avg_weights.mean(axis=0)
                     self.offline_feature_importance.append({
                         'step': self.step,
@@ -151,7 +169,7 @@ class DQNLogger:
             plt.ion()
     
     def log_training_step(self, epsilon, lr, reward, loss, main_q_values, target_q_values, 
-                          temporal_weights=None, feature_weights=None):
+                          temporal_weights=None, feature_weights=None, technical_weights=None):
         """
         Store training metrics offline. Histograms and attention data are saved rather than plotted.
         """
@@ -189,10 +207,10 @@ class DQNLogger:
                         data = target_q_values.cpu().numpy()
                         self.offline_histograms.setdefault('q_values/target_dist', []).append((self.step, data))
             
-            # Save attention data offline if provided
+            # Log attention data (including technical weights if provided)
             if (temporal_weights is not None and feature_weights is not None and 
                 self.step % self.attention_freq == 0):
-                self.log_attention_heatmaps(temporal_weights, feature_weights)
+                self.log_attention_heatmaps(temporal_weights, feature_weights, technical_weights)
             
             self.step += 1
         
@@ -257,19 +275,19 @@ class DQNLogger:
                     temp_weights = temp_weights.mean(axis=0)
                 elif len(temp_weights.shape) < 2:
                     continue
-                fig = plt.figure(figsize=(24, 36))
+                fig = plt.figure(figsize=(36, 24))
                 sns.heatmap(temp_weights, cmap='viridis')
                 plt.title(f'Temporal Attention Pattern (Layer {layer_idx + 1})')
                 plt.xlabel('Time Steps')
                 plt.ylabel('Attention Position')
                 buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=150)
+                plt.savefig(buf, format='png', dpi=120)
                 buf.seek(0)
                 image = Image.open(buf)
-                image = image.resize((1500, 1500))
+                image = image.resize((1000, 1000))
                 self.writer.add_image(f'attention/temporal_layer_{layer_idx + 1}', 
-                                    np.array(image).transpose(2, 0, 1), 
-                                    step)
+                                      np.array(image).transpose(2, 0, 1), 
+                                      step)
                 plt.close(fig)
                 buf.close()
             # Feature attention heatmaps
@@ -279,8 +297,8 @@ class DQNLogger:
                     feat_weights = feat_weights.mean(axis=0)
                 elif len(feat_weights.shape) < 2:
                     continue
-                if self.feature_names and feat_weights.shape[0] == len(self.feature_names):
-                    fig = plt.figure(figsize=(24, 36))
+                if self.feature_names and feat_weights.shape[0] == len(self.feature_names) - 11:
+                    fig = plt.figure(figsize=(36, 24))
                     sns.heatmap(feat_weights, cmap='viridis',
                                 xticklabels=self.feature_names,
                                 yticklabels=self.feature_names)
@@ -288,15 +306,37 @@ class DQNLogger:
                     plt.xticks(rotation=45, ha='right')
                     plt.yticks(rotation=0)
                     buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
                     buf.seek(0)
                     image = Image.open(buf)
-                    image = image.resize((1500, 1500))
+                    image = image.resize((1000, 1000))
                     self.writer.add_image(f'attention/feature_layer_{layer_idx + 1}', 
-                                        np.array(image).transpose(2, 0, 1), 
-                                        step)
+                                          np.array(image).transpose(2, 0, 1), 
+                                          step)
                     plt.close(fig)
                     buf.close()
+            # Technical attention heatmaps
+            for layer_idx, avg_weights in enumerate(log.get('technical', [])):
+                tech_weights = avg_weights.cpu().numpy()
+                if len(tech_weights.shape) > 2:
+                    tech_weights = tech_weights.mean(axis=0)
+                elif len(tech_weights.shape) < 2:
+                    continue
+                fig = plt.figure(figsize=(24, 36))
+                sns.heatmap(tech_weights, cmap='viridis')
+                plt.title(f'Technical Attention Pattern (Layer {layer_idx + 1})')
+                plt.xlabel('Token/Feature Index')
+                plt.ylabel('Attention Position')
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', dpi=200)
+                buf.seek(0)
+                image = Image.open(buf)
+                image = image.resize((800, 800))
+                self.writer.add_image(f'attention/technical_layer_{layer_idx + 1}', 
+                                      np.array(image).transpose(2, 0, 1), 
+                                      step)
+                plt.close(fig)
+                buf.close()
             gc.collect()
         
         # Flush episode PnL trend plot
@@ -313,13 +353,13 @@ class DQNLogger:
             plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
             buf.seek(0)
             image = Image.open(buf)
-            image = image.resize((800, 600))
+            image = image.resize((800, 800))
             self.writer.add_image('performance/pnl_trend', 
                                 np.array(image).transpose(2, 0, 1), 
                                 self.step)
             plt.close(fig)
             buf.close()
-        
+        '''
         # Flush feature importance logs
         for entry in self.offline_feature_importance:
             step = entry['step']
@@ -340,13 +380,13 @@ class DQNLogger:
             plt.savefig(buf, format='png', dpi=140, bbox_inches='tight')
             buf.seek(0)
             image = Image.open(buf)
-            image = image.resize((1500, 1500))
+            image = image.resize((1100, 1100))
             self.writer.add_image(f'feature_importance/layer_{layer_idx + 1}', 
                                 np.array(image).transpose(2, 0, 1), 
                                 step)
             plt.close(fig)
             buf.close()
-        
+        '''
         # Flush feature importance heatmap logs
         for entry in self.offline_feature_importance_heatmap:
             step = entry['step']
@@ -361,7 +401,7 @@ class DQNLogger:
             importance_matrix = np.array(layer_importances)
             avg_importance = importance_matrix.mean(axis=0)
             top_indices = np.argsort(avg_importance)[-20:]
-            fig = plt.figure(figsize=(24, 36))
+            fig = plt.figure(figsize=(36, 24))
             sns.heatmap(importance_matrix[:, top_indices].T, 
                         xticklabels=[f'Layer {i+1}' for i in range(n_layers)],
                         yticklabels=np.array(feature_names)[top_indices],

@@ -12,7 +12,7 @@ class Config:
             'EPISODES' : 5000,
             'BATCH_SIZE' : 16,
             'BUFFER_SIZE' : 120000,
-            'MIN_REPLAY_SIZE' : 110000,
+            'MIN_REPLAY_SIZE' : 11000,
             'MIN_LEARNING_RATE' : 1e-5,
             'LEARNING_RATE' : 1e-4,
             'GAMMA' : 0.99,
@@ -29,8 +29,8 @@ class Config:
         }
         
         self.ARCHITECTURE_PARMS = {
-            'ASTRO_DIM' : 12,
-            'TECH_DIM' : 8,
+            'ASTRO_DIM' : 24,
+            'TECH_DIM' : 16,
             'NUM_ASTRO_LAYERS' : 1,
             'NUM_TEMPORAL_LAYERS' : 1,
             'NUM_TECH_LAYERS' : 1,

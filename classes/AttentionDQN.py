@@ -17,7 +17,7 @@ class TechnicalAttentionBlock(nn.Module):
             embed_dim=self.tech_dim,
             num_heads=tech_num_heads,
             dropout=dropout_rate,
-            batch_first=True  # We'll be working with (batch, tokens, feature_dim)
+            batch_first=True  # We'll be working with (batch, tokens, tech_dim)
         )
         
         # A simple feed-forward network applied on each feature token.
@@ -46,17 +46,17 @@ class TechnicalAttentionBlock(nn.Module):
             attn_weights: The attention weights from the multihead attention (for inspection).
         """
         batch, seq_len, _ = x.size()
-        print(x.shape)
-        # Project input: shape becomes (batch, seq_len, num_features * feature_dim)
+        
+        # Project input: shape becomes (batch, seq_len, num_techs * tech_dim)
         x_proj = self.proj(x)
         
         # Reshape to have a token for each feature:
-        # New shape: (batch * seq_len, num_features, feature_dim)
-        x_feat = x_proj.view(batch * seq_len, self.num_features, self.feature_dim)
-        
+        # New shape: (batch * seq_len, num_techs, tech_dim)
+        x_feat = x_proj.view(batch * seq_len, self.num_techs, self.tech_dim)
+
         # Create a key padding mask.
         # For each token (i.e. each feature vector), if the absolute sum is nearly zero, mark it as padded.
-        # This mask should have shape (batch * seq_len, num_features) and be of type bool.
+        # This mask should have shape (batch * seq_len, num_techs) and be of type bool.
         key_padding_mask = (x_feat.abs().sum(dim=-1) < 1e-6)
         
         # Pass the mask to the multihead attention module.
@@ -72,8 +72,8 @@ class TechnicalAttentionBlock(nn.Module):
         ffn_output = self.ffn(x_feat)
         x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
-        # Reshape back to (batch, seq_len, num_features * feature_dim)
-        out = x_feat.view(batch, seq_len, self.num_features * self.tech_dim)
+        # Reshape back to (batch, seq_len, num_techs * tech_dim)
+        out = x_feat.view(batch, seq_len, self.num_techs * self.tech_dim)
         
         # Project back to the original embedding dimension.
         out = self.out_proj(out)
@@ -86,11 +86,11 @@ class AstroAttentionBlock(nn.Module):
         self.num_features = num_features 
         self.astro_feature_dim = feature_dim
 
-        self.proj = nn.Linear(embed_dim, num_features * feature_dim)
+        self.proj = nn.Linear(embed_dim, num_features * self.astro_feature_dim)
         
         # Multihead attention that operates over the feature tokens.
         self.attention = nn.MultiheadAttention(
-            embed_dim=feature_dim,
+            embed_dim=self.astro_feature_dim,
             num_heads=num_astro_heads,
             dropout=dropout_rate,
             batch_first=True  # We'll be working with (batch, tokens, feature_dim)
@@ -113,7 +113,7 @@ class AstroAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         
         # Optionally, a final projection back to embed_dim.
-        self.out_proj = nn.Linear(self.num_features * self.astro_feature_dim, embed_dim)
+        self.out_proj = nn.Linear((self.num_features) * self.astro_feature_dim, embed_dim)
         
     def forward(self, x):
         """
@@ -130,7 +130,7 @@ class AstroAttentionBlock(nn.Module):
         
         # Reshape to have a token for each feature:
         # New shape: (batch * seq_len, num_features, feature_dim)
-        x_feat = x_proj.view(batch * seq_len, self.num_features, self.feature_dim)
+        x_feat = x_proj.view(batch * seq_len, self.num_features, self.astro_feature_dim)
         
         # Create a key padding mask.
         # For each token (i.e. each feature vector), if the absolute sum is nearly zero, mark it as padded.
@@ -151,7 +151,7 @@ class AstroAttentionBlock(nn.Module):
         x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
         # Reshape back to (batch, seq_len, num_features * feature_dim)
-        out = x_feat.view(batch, seq_len, self.num_features * self.feature_dim)
+        out = x_feat.view(batch, seq_len, self.num_features * self.astro_feature_dim)
         
         # Project back to the original embedding dimension.
         out = self.out_proj(out)
@@ -216,10 +216,6 @@ class AttentionDQN(nn.Module):
         self.num_astro_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_ASTRO_LAYERS")
         self.num_tech_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_TECH_LAYERS")
         
-        print(f"Total features in state: {self.num_features}") 
-        
-        print(f"Initializing AttentionDQN with dimensions: seq_len={self.seq_len}, num_features={self.num_features}")
-        
         # Input projection
         self.input_projection = nn.Sequential(
             nn.Linear(self.num_features, self.embed_dim),
@@ -231,29 +227,25 @@ class AttentionDQN(nn.Module):
         self.register_buffer('pos_encoding', self._get_sinusoidal_encoding(self.seq_len, self.embed_dim))
         self.pos_dropout = nn.Dropout(self.dropout)
         
-        print('create tech blocks')
         self.tech_blocks = nn.ModuleList([
             TechnicalAttentionBlock(
-                self.embed_dim, self.num_tech_heads, self.dropout, 15, self.config.ARCHITECTURE_PARMS.get("TECH_DIM"))
+                self.embed_dim, self.num_tech_heads, self.dropout, 11, self.config.ARCHITECTURE_PARMS.get("TECH_DIM"))
             for _ in range(self.num_tech_blocks)
         ])
-        print('create temp blocks')
         # Temporal blocks remain the same
         self.temporal_blocks = nn.ModuleList([
             TemporalAttentionBlock(self.embed_dim, self.num_temporal_heads, self.dropout)
             for _ in range(self.num_temporal_blocks)
         ])
-        
-        print('create astro blocks')
+
         # Feature blocks now get num_features parameter
         self.astro_blocks = nn.ModuleList([
-            AstroAttentionBlock(self.embed_dim, self.num_astro_heads, self.dropout, self.num_features - 15, self.astro_dim)
+            AstroAttentionBlock(self.embed_dim, self.num_astro_heads, self.dropout, self.num_features - 11, self.astro_dim)
             for _ in range(self.num_astro_blocks)
         ])
-        print('create final norm')
+
         self.final_norm = nn.LayerNorm(self.embed_dim)
         
-        print('successfully create norm')
         self.q_values = nn.Sequential(
             nn.Linear(self.embed_dim, self.embed_dim * 4),
             nn.ReLU(),
@@ -263,7 +255,6 @@ class AttentionDQN(nn.Module):
             nn.Dropout(self.dropout),
             nn.Linear(self.embed_dim * 2, action_dim)
         )
-        print('successfully create ff')
         self._init_weights()
     
     def _get_sinusoidal_encoding(self, seq_len, d_model):
@@ -300,9 +291,9 @@ class AttentionDQN(nn.Module):
         
         # Apply technicals attention
         technical_weights = []
-        for block in self.temporal_blocks:
+        for block in self.tech_blocks:
             x, weights = block(x)
-            temporal_weights.append(weights)
+            technical_weights.append(weights)
             x = x.masked_fill(zero_mask, 0.0)
             
         # Apply temporal attention
