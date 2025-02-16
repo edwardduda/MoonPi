@@ -38,6 +38,7 @@ class Training:
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
         self.min_lr=config.TRAINING_PARMS.get('MIN_LEARNING_RATE')
         
+        
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
@@ -89,7 +90,7 @@ class Training:
 
         # Get current Q values
         current_q_values, curr_attention = self.main_model(state_batch)
-        temporal_weights, feature_weights = curr_attention
+        technical_weights, temporal_weights, feature_weights = curr_attention
         action_q_values = current_q_values.gather(1, action_batch)
 
         # Calculate target Q values
@@ -104,7 +105,7 @@ class Training:
         loss = F.smooth_l1_loss(action_q_values, target_q_values)
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), max_norm=1.1)
+        torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), max_norm=1.05)
         self.optimizer.step()
 
         # Update target network
@@ -131,6 +132,7 @@ class Training:
             loss=loss.item(),
             main_q_values=current_q_values,
             target_q_values=target_next_q_values,
+            technical_weights=technical_weights,
             temporal_weights=temporal_weights,
             feature_weights=feature_weights
         )
@@ -242,9 +244,10 @@ class Training:
         
         self.episodes_done += 1
         
-        if self.episodes_done % 500 == 0:
+        if self.episodes_done % 100 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
+    
     def train(self, should_exit_flag=None):
         try:
             for episode_num in self.episode_progress_bar:
