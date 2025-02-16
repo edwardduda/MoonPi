@@ -16,6 +16,7 @@ import logging
 
 class Training:
     def __init__(self, env, main_model, target_model, config):
+        
         self.config = config
         self.episode_logger = EpisodeLogger()
         self.env=env
@@ -37,7 +38,6 @@ class Training:
         self.steps_per_episode=config.TRAINING_PARMS.get('STEPS_PER_EPISODE')
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
         self.min_lr=config.TRAINING_PARMS.get('MIN_LEARNING_RATE')
-        
         
         logging.basicConfig(
             level=logging.INFO,
