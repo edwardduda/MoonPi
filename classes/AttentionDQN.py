@@ -38,13 +38,7 @@ class TechnicalAttentionBlock(nn.Module):
         self.out_proj = nn.Linear(self.num_techs * self.tech_dim, embed_dim)
         
     def forward(self, x):
-        """
-        Args:
-            x: Tensor of shape (batch, seq_len, embed_dim)
-        Returns:
-            out: Tensor of shape (batch, seq_len, embed_dim) after feature attention.
-            attn_weights: The attention weights from the multihead attention (for inspection).
-        """
+
         batch, seq_len, _ = x.size()
         
         # Project input: shape becomes (batch, seq_len, num_techs * tech_dim)
@@ -112,48 +106,28 @@ class AstroAttentionBlock(nn.Module):
         self.layer_norm2 = nn.LayerNorm(self.astro_feature_dim)
         self.dropout = nn.Dropout(dropout_rate)
         
-        # Optionally, a final projection back to embed_dim.
         self.out_proj = nn.Linear((self.num_features) * self.astro_feature_dim, embed_dim)
         
     def forward(self, x):
-        """
-        Args:
-            x: Tensor of shape (batch, seq_len, embed_dim)
-        Returns:
-            out: Tensor of shape (batch, seq_len, embed_dim) after feature attention.
-            attn_weights: The attention weights from the multihead attention (for inspection).
-        """
         batch, seq_len, _ = x.size()
         
-        # Project input: shape becomes (batch, seq_len, num_features * feature_dim)
         x_proj = self.proj(x)
         
-        # Reshape to have a token for each feature:
-        # New shape: (batch * seq_len, num_features, feature_dim)
         x_feat = x_proj.view(batch * seq_len, self.num_features, self.astro_feature_dim)
         
-        # Create a key padding mask.
-        # For each token (i.e. each feature vector), if the absolute sum is nearly zero, mark it as padded.
-        # This mask should have shape (batch * seq_len, num_features) and be of type bool.
         key_padding_mask = (x_feat.abs().sum(dim=-1) < 1e-6)
         
-        # Pass the mask to the multihead attention module.
-        # Tokens flagged in the key_padding_mask will be ignored in the attention computation.
         attn_output, attn_weights = self.attention(
             x_feat, x_feat, x_feat, key_padding_mask=key_padding_mask
         )
         
-        # Residual connection + layer norm.
         x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
         
-        # Feed-forward network on each feature token.
         ffn_output = self.ffn(x_feat)
         x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
-        # Reshape back to (batch, seq_len, num_features * feature_dim)
         out = x_feat.view(batch, seq_len, self.num_features * self.astro_feature_dim)
         
-        # Project back to the original embedding dimension.
         out = self.out_proj(out)
         
         return out, attn_weights

@@ -118,24 +118,12 @@ class DataPipeline:
         return df
     
     def calculate_macd(self, data, fast_period=12, slow_period=26, signal_period=9):
-        """
-        Calculate MACD using percentage changes instead of raw prices.
-    
-        Args:
-        data (pd.DataFrame): DataFrame with OHLC percentage changes
-        fast_period (int): Period for fast EMA
-        slow_period (int): Period for slow EMA
-        signal_period (int): Period for signal line
-        """
         try:
-            # Use Close percentage changes for MACD calculation
             price_series = data['Close']
         
-            # Calculate EMAs on the percentage changes
             fast_ema = price_series.ewm(span=fast_period, adjust=False).mean()
             slow_ema = price_series.ewm(span=slow_period, adjust=False).mean()
         
-            # Calculate MACD line
             macd_line = fast_ema - slow_ema
         
             # Calculate signal line
@@ -144,14 +132,12 @@ class DataPipeline:
             # Calculate MACD histogram
             macd_hist = macd_line - signal_line
         
-            # Create DataFrame with MACD values
             macd_data = pd.DataFrame({
             'MACD': macd_line,
             'Signal': signal_line,
             'Hist': macd_hist
             }, index=data.index)
         
-            # Drop the initial periods where MACD couldn't be properly calculated
             macd_data = macd_data.iloc[slow_period-1:]
         
             logging.debug(f"MACD calculated on percentage changes. Shape: {macd_data.shape}")
@@ -261,13 +247,6 @@ class DataPipeline:
         return combined_df
 
     def populate_dataset(self, ticker_date_dict: dict):
-        """
-        Populates self.dataset using a dictionary where the key is the ticker symbol
-        and the value is the IPO date (can be None to infer).
-
-        Parameters:
-        - ticker_date_dict (dict): Dictionary with ticker symbols as keys and IPO dates as values.
-        """
         self.dataset = {}
         logging.info("Starting dataset population...")
         for ticker, manual_date in tqdm(ticker_date_dict.items(), desc="Processing Tickers"):
