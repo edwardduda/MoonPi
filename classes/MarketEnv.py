@@ -88,7 +88,7 @@ class SegmentRiskMetrics:
 
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
-                trading_fee, hold_penalty, max_hold_steps, segment_size):
+                trading_fee, hold_penalty, max_hold_steps, segment_size, num_projected_days):
         
         self.full_data = data
         self.initial_capital = initial_capital
@@ -98,25 +98,30 @@ class MarketEnv:
         self.hold_penalty = hold_penalty
         self.max_hold_steps = max_hold_steps
         
+        self.num_projected_days = num_projected_days
+        
         # Constants for window sizes
-        self.RETURNS_WINDOW_SIZE = 20
+        self.RETURNS_WINDOW_SIZE = 30
         
         self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
-        self.SHARPE_WINDOW = 20  # For calculating rolling Sharpe ratio
-        self.VOLATILITY_WINDOW = 20  # For calculating rolling volatility
+        self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
+        self.VOLATILITY_WINDOW = 30  # For calculating rolling volatility
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
         # Get feature dimensions (excluding Close and Ticker)
         self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
+        self.astro_feature_columns = [col for col in self.full_data.columns if col not in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open', "Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
+        self.tech_feature_columns = [col for col in self.full_data.columns if col in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open']]
         self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
         
         # Initialize numpy arrays for windows
         self.price_window = np.zeros(self.segment_size)
         self.feature_window = np.zeros((self.segment_size, len(self.feature_columns)))
+        self.tech_window = np.zeros((self.segment_size - self.num_projected_days, len(self.tech_feature_columns)))
         self.returns_window = np.zeros(self.RETURNS_WINDOW_SIZE)
         self.date_window = np.zeros(self.segment_size, dtype='datetime64[ns]')
         
@@ -176,7 +181,6 @@ class MarketEnv:
             self.feature_window[-1] = features
             
     def calculate_risk_metrics(self, current_price):
-        
         # Calculate rolling Sharpe ratio
         if len(self.returns_window) >= self.SHARPE_WINDOW:
             recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
@@ -211,41 +215,45 @@ class MarketEnv:
             # Calculate risk metrics
             sharpe, volatility, rel_strength = self.calculate_risk_metrics(self.price_window[-1])
             
-            # Create risk state features
-            risk_state = np.array([
-                sharpe, volatility, rel_strength
-            ])
+            # Risk and portfolio state features
+            risk_state = np.array([sharpe, volatility, rel_strength])
+            portfolio_state = np.array([float(self.holding), self.cash / self.initial_capital])
+
+            # Astrology features (extended into the future)
+            astro_features = self.data[self.astro_feature_columns].iloc[:self.num_projected_days + self.window_position].values if self.window_position > 0 else np.zeros((self.num_projected_days, len(self.astro_feature_columns)))
             
-            # Add portfolio state features
-            portfolio_state = np.array([
-                float(self.holding),
-                self.cash / self.initial_capital
-            ])
+            # Technical features (up to current point)
+            tech_features = self.data[self.tech_feature_columns].iloc[:self.window_position].values if self.window_position > 0 else np.zeros((1, len(self.tech_feature_columns)))
+
+            # Determine the length for all features
+            target_length = max(len(tech_features), len(astro_features), self.segment_size)
+
+            # Pad or truncate features to match target_length
+            astro_features_padded = np.pad(astro_features, ((0, target_length - len(astro_features)), (0, 0)), 'constant')
+            tech_features_padded = np.pad(tech_features, ((0, target_length - len(tech_features)), (0, 0)), 'constant')
+
+            # Combine all features
+            combined_features = np.hstack([tech_features_padded, astro_features_padded])
             
-            # Combine market features with portfolio and risk state
-            if self.window_position > 0 or self.windows_filled:
-                valid_features = self.feature_window[:self.window_position] if not self.windows_filled else self.feature_window
-                # Tile portfolio and risk states to match feature window length
-                portfolio_states = np.tile(portfolio_state, (len(valid_features), 1))
-                risk_states = np.tile(risk_state, (len(valid_features), 1))
-                # Concatenate all features
-                full_state = np.column_stack([valid_features, portfolio_states, risk_states])
-            else:
-                full_state = np.zeros((self.segment_size, self.state_dim))
-            
-            # Pad if necessary
-            if full_state.shape[0] < self.segment_size:
-                pad_size = self.segment_size - full_state.shape[0]
-                padding = np.zeros((pad_size, full_state.shape[1]))
-                full_state = np.vstack([padding, full_state])
-            
+            # Tile portfolio and risk states to match the combined features length
+            portfolio_states = np.tile(portfolio_state, (target_length, 1))
+            risk_states = np.tile(risk_state, (target_length, 1))
+
+            # Stack everything
+            full_state = np.column_stack([combined_features, portfolio_states, risk_states])
+
+            # Ensure full_state has the correct segment size
+            if full_state.shape[0] > self.segment_size:
+                full_state = full_state[-self.segment_size:, :]
+
             # Handle NaN values and ensure correct type
             full_state = np.nan_to_num(full_state, nan=0.0, posinf=1.0, neginf=-1.0)
-            return full_state.astype(np.float32)
+            
+            return full_state.astype(np.float16)
             
         except Exception as e:
             print(f"Error in get_state: {e}")
-            return np.zeros((self.segment_size, self.state_dim), dtype=np.float32)
+            return np.zeros((self.segment_size, self.state_dim), dtype=np.float16)
 
     def reset(self):
         if not self.shuffled_segments:
