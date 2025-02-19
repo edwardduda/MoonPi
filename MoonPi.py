@@ -13,6 +13,30 @@ from classes.Training import Training
 # Global flag for graceful shutdown
 should_exit = False
 
+def check_state_dimensions(env, model, device):
+    # Reset the environment to get an initial state.
+    state = env.reset()
+    print("Environment state shape:", state.shape)
+    
+    # Expected dimensions: (segment_size, combined_feature_dim)
+    # Here, env.state_dim should equal the combined feature dimension.
+    expected_shape = (env.segment_size, env.state_dim)
+    print("Expected state shape:", expected_shape)
+    
+    if state.shape != expected_shape:
+        print(f"Dimension mismatch! Got {state.shape} but expected {expected_shape}.")
+    else:
+        print("State dimensions are as expected.")
+
+    # Convert state to a batch (with batch_size = 1) and send it to the specified device.
+    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)  # shape: (1, segment_size, combined_feature_dim)
+    print("State tensor shape (after unsqueeze and to device):", state_tensor.shape)
+    
+    # Perform a forward pass through the model.
+    q_values, attn = model(state_tensor)
+    print("Model output Q-values shape:", q_values.shape)
+    # If q_values shape is (1, action_dim) then everything looks good.
+    
 def signal_handler(signum, frame):
     """Handle Ctrl+C signal"""
     global should_exit
@@ -80,7 +104,9 @@ def main():
         trading_fee=config.MARKET_ENV_PARMS.get("TRADING_FEE"),
         hold_penalty=config.MARKET_ENV_PARMS.get("HOLD_PENALTY"),
         max_hold_steps=config.MARKET_ENV_PARMS.get("MAX_HOLD_STEPS"),
-        segment_size=config.DATA_CONFIG.get("SEGMENT_SIZE"))
+        segment_size=config.DATA_CONFIG.get("SEGMENT_SIZE"),
+        num_projected_days=config.MARKET_ENV_PARMS.get("NUM_PROJECTED_DAYS"))
+        
 
         env.reset()
         # Get initial state to determine dimensions
@@ -93,7 +119,7 @@ def main():
         action_dim=action_dim,
         config=config,
         )
-        
+        check_state_dimensions(env, main_model, 'mps')
         training_module = Training(env=env,
         main_model=main_model,
         target_model=target_model,
