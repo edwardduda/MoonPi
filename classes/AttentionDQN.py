@@ -59,7 +59,7 @@ class TechnicalAttentionBlock(nn.Module):
         x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
         
         # Feed-forward network on each feature token.
-        ffn_output = self.ffn(x_feat)
+        ffn_output = self.ffn(x_feat).half().float()
         x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
         # Reshape back to (batch, seq_len, num_techs * tech_dim)
@@ -117,7 +117,7 @@ class AstroAttentionBlock(nn.Module):
         )
         
         x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
-        ffn_output = (self.ffn(x_feat))
+        ffn_output = self.ffn(x_feat).half().float()
         x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
         out = x_feat.view(batch, seq_len, self.num_features * self.astro_feature_dim)
@@ -152,7 +152,7 @@ class TemporalAttentionBlock(nn.Module):
         
         x = x + self.dropout(attention_output)
         normed_x = self.layer_norm1(x)
-        ffn_output = self.ffn(normed_x)
+        ffn_output = self.ffn(normed_x).half().float()
         x = x + self.dropout(ffn_output)
         
         return x, attention_weights
@@ -291,7 +291,7 @@ class AttentionDQN(nn.Module):
         
         # Final normalization and projection.
         x_proc = self.final_norm(x_proc)
-        q_values = self.q_values(x_proc)
+        q_values = self.q_values(x_proc).half().float()
         
         # 4. Gate the final Q-values with the holding flag.
         # Aggregate the holding flag over the sequence dimension and apply a sigmoid.
