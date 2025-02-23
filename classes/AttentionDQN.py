@@ -180,7 +180,7 @@ class AttentionDQN(nn.Module):
         
         # Define the technical tokens:
         self.num_tech_total = 11  # originally expected technical tokens (including the holding flag)
-        self.num_tech = self.num_tech_total - 1  # processed by technical blocks (holding flag removed)
+        self.num_tech = self.num_tech_total  # processed by technical blocks (holding flag removed)
         
         # Update input projection to expect one less feature (holding flag removed).
         self.input_projection = nn.Sequential(
