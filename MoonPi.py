@@ -34,7 +34,7 @@ def check_state_dimensions(env, model, device):
     
     # Perform a forward pass through the model.
     q_values, attn = model(state_tensor)
-    print("Model output Q-values shape:", q_values.shape)
+    #print("Model output Q-values shape:", q_values.shape)
     # If q_values shape is (1, action_dim) then everything looks good.
     
 def signal_handler(signum, frame):
