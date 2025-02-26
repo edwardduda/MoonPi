@@ -3,7 +3,7 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-            'SEGMENT_SIZE' : int(120), #time window size      252 = 1 fiscal year
+            'SEGMENT_SIZE' : int(130), #time window size      252 = 1 fiscal year
             'DATASET_CSV' : "full_df.csv",
             'NUM_FEATURES' : None
         }
@@ -41,11 +41,11 @@ class Config:
         }
         
         self.MARKET_ENV_PARMS = {
-        'NUM_PROJECTED_DAYS' : 10,
+        'NUM_PROJECTED_DAYS' : 40,
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
-        'MAX_HOLD_STEPS' : 21,
+        'MAX_HOLD_STEPS' : 28,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.05,
-        'MAX_TRADES_PER_MONTH' : 15,
+        'MAX_TRADES_PER_MONTH' : 5,
         }

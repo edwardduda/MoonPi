@@ -102,13 +102,6 @@ class EpisodeLogger:
         abs_path = os.path.abspath(self.log_dir)
         filename = os.path.join(abs_path, f'training_episode_{episode_num}.json')
         
-        # Log the save attempt
-        print(f"\nAttempting to save episode data:")
-        print(f"Directory: {abs_path}")
-        print(f"Full path: {filename}")
-        print(f"Directory exists: {os.path.exists(abs_path)}")
-        print(f"Directory contents: {os.listdir(abs_path)}")
-        
         # Combine environmental and training metrics
         training_data = {
             'episode_num': episode_num,
