@@ -41,7 +41,7 @@ class Config:
         }
         
         self.MARKET_ENV_PARMS = {
-        'NUM_PROJECTED_DAYS' : 25,
+        'NUM_PROJECTED_DAYS' : 40,
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
         'MAX_HOLD_STEPS' : 28,
