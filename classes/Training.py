@@ -136,8 +136,6 @@ class Training:
             temporal_weights=temporal_weights,
             feature_weights=feature_weights
         )
-        
-        self.logger.log_feature_importance(feature_weights, self.logger.feature_names)
 
         self.total_steps += 1
         
@@ -244,7 +242,7 @@ class Training:
         
         self.episodes_done += 1
         
-        if self.episodes_done % 300 == 0:
+        if self.episodes_done % 2 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
     

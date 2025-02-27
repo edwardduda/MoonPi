@@ -10,7 +10,7 @@ from collections import deque
 import gc
 import logging
 import scipy
-from numba import jit  # imported in case you want to jit some helper functions later
+import DQNLoggerCpp
 
 class DQNLogger:
     def __init__(self, log_dir, scalar_freq, attention_freq, histogram_freq, buffer_size):
@@ -49,7 +49,9 @@ class DQNLogger:
         
         # Optionally, store feature names (used for attention heatmaps)
         self.feature_names = None
-
+        self.dqn_logger = DQNLoggerCpp.DQNLogger()
+        
+    '''
     def initialize_attention_buffers(self, temporal_weights, feature_weights, technical_weights):
         """Initialize the attention buffers with proper shapes."""
         if self.temporal_attention_buffer is None:
@@ -98,7 +100,7 @@ class DQNLogger:
                         (1 - alpha) * self.technical_attention_buffer[layer_idx] +
                         alpha * layer_weights[0]
                     )
-    
+    '''
     def log_attention_heatmaps(self, temporal_weights, feature_weights, technical_weights=None):
         """
         Updates running averages and stores a copy of the current attention buffers offline.
@@ -110,7 +112,10 @@ class DQNLogger:
                 (technical_weights is None or all(isinstance(w, torch.Tensor) for w in technical_weights))
             )
             if valid_weights:
-                self.update_attention_buffers(temporal_weights, feature_weights, technical_weights)
+                self.dqn_logger.update_attention_buffers(temporal_weights, feature_weights, technical_weights)
+                self.temporal_attention_buffer = self.dqn_logger.get_temporal_attention_buffer()
+                self.feature_attention_buffer = self.dqn_logger.get_feature_attention_buffer()
+                self.technical_attention_buffer = self.dqn_logger.get_technical_attention_buffer()
                 temporal_copy = [buf.clone() for buf in self.temporal_attention_buffer]
                 feature_copy = [buf.clone() for buf in self.feature_attention_buffer]
                 technical_copy = (
@@ -139,34 +144,6 @@ class DQNLogger:
                 self.offline_scalars.setdefault(metric_name, []).append((self.step, value))
             elif torch.is_tensor(value) and value.numel() == 1:
                 self.offline_scalars.setdefault(metric_name, []).append((self.step, value.item()))
-    
-    def log_feature_importance(self, feature_weights, feature_names):
-        """
-        Save raw feature weights and names offline; plotting happens later.
-        """
-        plt.ioff()
-        try:
-            if not feature_weights or not feature_names:
-                return
-            self.feature_names = feature_names  # save for later use in attention plots
-            for layer_idx, layer_weights in enumerate(feature_weights):
-                with torch.no_grad():
-                    avg_weights = layer_weights.detach().mean(dim=0).cpu().numpy()
-                    feature_dim = avg_weights.shape[-1]
-                    if feature_dim != len(feature_names) - 11:
-                        logging.warning(f"Feature dimension mismatch: got {feature_dim} vs expected {len(feature_names)}")
-                        continue
-                    feature_importance = avg_weights.mean(axis=0)
-                    self.offline_feature_importance.append({
-                        'step': self.step,
-                        'layer': layer_idx,
-                        'feature_importance': feature_importance,
-                        'feature_names': feature_names
-                    })
-        except Exception as e:
-            logging.error(f"Error in log_feature_importance: {e}")
-        finally:
-            plt.ion()
     
     def log_training_step(self, epsilon, lr, reward, loss, main_q_values, target_q_values, 
                           temporal_weights=None, feature_weights=None, technical_weights=None):
