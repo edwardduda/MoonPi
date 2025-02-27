@@ -35,7 +35,6 @@ float normalize_reward(float reward) {
     return 0.0f;
 }
 
-// Calculate PnL metrics and return a tuple (trade_cost_pct, net_pnl_pct, risk_adjusted_pnl)
 std::tuple<float, float, float> calculate_pnl_metrics(float current_price, 
                                                       float entry_price, 
                                                       float trading_fee, 
@@ -63,8 +62,44 @@ std::tuple<float, float, float> calculate_pnl_metrics(float current_price,
     return std::make_tuple(trade_cost_pct, net_pnl_pct, risk_adjusted_pnl);
 }
 
+float calculate_local_sharpe(
+    py::array_t<float> returns,
+    int lookback
+    ) {
+    float risk_free_rate = 0.02f;
+    py::buffer_info buf = returns.request();
+    float* pointer = static_cast<float*>(buf.ptr);
+    
+    int total_size = buf.size;
+    if (total_size < lookback) {
+        return 0.0f;
+    }
+    
+    float* start_ptr = pointer + (total_size - lookback);
+    
+    float sum = 0.0f;
+    for (int i = 0; i < lookback; i++) {
+        sum += start_ptr[i];
+    }
+    float avg_return = sum / lookback;
+    
+    float sum_sq_diff = 0.0f;
+    for (int i = 0; i < lookback; i++) {
+        float diff = start_ptr[i] - avg_return;
+        sum_sq_diff += diff * diff;
+    }
+    float std_return = std::sqrt(sum_sq_diff / lookback);
+    
+    if (std_return == 0.0f) {
+        return 0.0f;
+    }
+    
+    return (avg_return - risk_free_rate) / std_return;
+}
+
 PYBIND11_MODULE(MarketEnvCpp, m) {
     m.doc() = "Fast C++ implementations for MarketEnv";
     m.def("normalize_reward", &normalize_reward, "Calculate normalized trading reward");
     m.def("calculate_pnl_metrics", &calculate_pnl_metrics, "Calculate PnL metrics");
+    m.def("calculate_local_sharpe", &calculate_local_sharpe, "Calculate local sharpe");
 }

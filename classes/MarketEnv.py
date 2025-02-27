@@ -5,21 +5,6 @@ from typing import Tuple
 import MarketEnvCpp as me
 
 @jit(nopython=True, cache=True)
-def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
-    """Calculate annualized Sharpe ratio"""
-    if len(returns) < lookback:
-        return 0.0
-    
-    recent_returns = returns[-lookback:]
-    avg_return = np.mean(recent_returns) * 252
-    std_return = np.std(recent_returns) * np.sqrt(252)
-    
-    if std_return == 0:
-        return 0.0
-        
-    return (avg_return - 0.02) / std_return
-
-@jit(nopython=True, cache=True)
 def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
     """Calculate relative strength indicator"""
     if current_idx < window:
@@ -34,30 +19,6 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     avg_price = np.mean(window_prices)
     
     return (current_price - avg_price) / avg_price
-
-class SegmentRiskMetrics:
-    def __init__(self, segment_size):
-        self.segment_size = segment_size
-        self.risk_free_rate = 0.02
-                
-    def get_risk_reward_multiplier(self, segment_data, current_idx):
-        """
-        Calculate risk-adjusted reward multiplier using only information
-        available within the current segment up to current_idx
-        """
-        if current_idx < 2:
-            return 1.0                
-        # Combine metrics into multiplier
-        vol_factor = 1.05   # Lower volatility = higher multiplier
-        sharpe_factor = 1.05 # Scale Sharpe to [0,1]
-        strength_factor = 1.05  # Scale strength to [0,1]
-        
-        # Weighted combination
-        multiplier = (0.4 * vol_factor + 
-                     0.4 * sharpe_factor + 
-                     0.2 * strength_factor)
-        
-        return np.clip(multiplier, 0.1, 2.0)  # Limit multiplier range
 
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
@@ -75,6 +36,7 @@ class MarketEnv:
         
         # Constants for window sizes
         self.RETURNS_WINDOW_SIZE = 30
+        
         
         self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
@@ -157,7 +119,7 @@ class MarketEnv:
         # Calculate rolling Sharpe ratio
         if len(self.returns_window) >= self.SHARPE_WINDOW:
             recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
-            sharpe = calculate_local_sharpe(recent_returns)
+            sharpe = me.calculate_local_sharpe(recent_returns, self.SHARPE_WINDOW)
         else:
             sharpe = 0.0
             
@@ -222,7 +184,7 @@ class MarketEnv:
             # Handle NaN values and ensure correct type
             full_state = np.nan_to_num(full_state, nan=0.0, posinf=1.0, neginf=-1.0)
             
-            return full_state.astype(np.float16)
+            return full_state.astype(np.float32)
             
         except Exception as e:
             print(f"Error in get_state: {e}")
