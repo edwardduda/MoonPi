@@ -1,24 +1,7 @@
 import pandas as pd
 import numpy as np
-from numba import jit
 from typing import Tuple
 import MarketEnvCpp as me
-
-@jit(nopython=True, cache=True)
-def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
-    """Calculate relative strength indicator"""
-    if current_idx < window:
-        return 0.0
-        
-    current_price = prices[current_idx]
-    window_prices = prices[max(0, current_idx-window):current_idx]
-    
-    if len(window_prices) == 0:
-        return 0.0
-        
-    avg_price = np.mean(window_prices)
-    
-    return (current_price - avg_price) / avg_price
 
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
@@ -42,6 +25,7 @@ class MarketEnv:
         # Add risk metric windows
         self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
         self.VOLATILITY_WINDOW = 30  # For calculating rolling volatility
+        self.RELATIVE_STRENGTH_WINDOW = 30
         self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
         self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
         self.risk_feature_dim = 3 
@@ -130,9 +114,10 @@ class MarketEnv:
             
         # Calculate relative strength
         if self.window_position > 0 or self.windows_filled:
-            rel_strength = calculate_relative_strength(
+            rel_strength = me.calculate_relative_strength(
                 self.price_window, 
-                self.window_position if not self.windows_filled else len(self.price_window) - 1
+                self.window_position if not self.windows_filled else len(self.price_window) - 1,
+                self.RELATIVE_STRENGTH_WINDOW
             )
         else:
             rel_strength = 0.0

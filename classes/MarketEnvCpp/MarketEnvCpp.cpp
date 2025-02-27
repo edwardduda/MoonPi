@@ -97,9 +97,31 @@ float calculate_local_sharpe(
     return (avg_return - risk_free_rate) / std_return;
 }
 
+float calculate_relative_strength(py::array_t<float> prices, int current_idx, int window = 40){
+    py::buffer_info buf = prices.request();
+    float* pointer = static_cast<float*>(buf.ptr);
+    float current_price = pointer[current_idx];
+
+    int start_idx = std::max(0, current_idx - window);
+
+    if(current_idx < window || current_idx <= start_idx){
+        return 0.0f;
+    }
+
+    float sum = 0.0f;
+    for (int i = start_idx; i < current_idx; i++) {
+        sum += pointer[i];
+    }
+    
+    float avg_price = sum / (current_idx - start_idx);
+    
+    return (current_price - avg_price) / avg_price;
+}
+
 PYBIND11_MODULE(MarketEnvCpp, m) {
     m.doc() = "Fast C++ implementations for MarketEnv";
     m.def("normalize_reward", &normalize_reward, "Calculate normalized trading reward");
     m.def("calculate_pnl_metrics", &calculate_pnl_metrics, "Calculate PnL metrics");
     m.def("calculate_local_sharpe", &calculate_local_sharpe, "Calculate local sharpe");
+    m.def("calculate_relative_strength", &calculate_relative_strength, "Calculate relative strength");
 }
