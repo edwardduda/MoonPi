@@ -2,12 +2,7 @@ import pandas as pd
 import numpy as np
 from numba import jit
 from typing import Tuple
-
-@jit(nopython=True, cache=True)
-def normalize_reward(reward):
-    if abs(reward) > 1:
-        return np.sign(reward) * np.log(1 + abs(reward))
-    return reward
+import MarketEnvCpp as me
 
 @jit(nopython=True, cache=True)
 def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
@@ -39,28 +34,6 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     avg_price = np.mean(window_prices)
     
     return (current_price - avg_price) / avg_price
-
-@jit(nopython=True, cache=True)
-def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
-    # Calculate raw PnL percentage
-    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
-        
-    # Calculate trade costs
-    trade_cost_pct = (trading_fee * 2) / portfolio_value
-        
-    # Net PnL after costs
-    net_pnl_pct = pnl_pct - trade_cost_pct
-        
-    # Calculate risk-adjusted PnL using volatility from returns window
-    if len(returns_window) > 1:
-        volatility = np.std(returns_window)
-        # Replace np.clip with min and max
-        volatility = max(0.001, min(volatility, 0.5))  # Manually clip volatility between 0.001 and 0.5
-        risk_adjusted_pnl = net_pnl_pct / (volatility + 1e-8)
-    else:
-        risk_adjusted_pnl = net_pnl_pct
-            
-    return trade_cost_pct, net_pnl_pct, risk_adjusted_pnl
 
 class SegmentRiskMetrics:
     def __init__(self, segment_size):
@@ -122,7 +95,7 @@ class MarketEnv:
         self.price_window = np.zeros(self.segment_size)
         self.feature_window = np.zeros((self.segment_size, len(self.feature_columns)))
         self.tech_window = np.zeros((self.segment_size - self.num_projected_days, len(self.tech_feature_columns)))
-        self.returns_window = np.zeros(self.RETURNS_WINDOW_SIZE)
+        self.returns_window = np.zeros(self.RETURNS_WINDOW_SIZE, dtype=np.float32)
         self.date_window = np.zeros(self.segment_size, dtype='datetime64[ns]')
         
         # Track current position in windows
@@ -387,7 +360,7 @@ class MarketEnv:
                 action_taken = "Invalid Sell - Trade Limit Exceeded"
             else:
                 # Calculate PnL metrics using original prices
-                trade_cost_pct, net_pnl_pct, risk_adjusted_pnl = calculate_pnl_metrics(
+                trade_cost_pct, net_pnl_pct, risk_adjusted_pnl = me.calculate_pnl_metrics(
                     original_close,
                     self.entry_price,
                     self.trading_fee,
@@ -423,7 +396,7 @@ class MarketEnv:
         else:  # Hold
             if self.holding:
                 # Calculate PnL metrics using original prices
-                trade_cost_pct, net_pnl_pct, risk_adjusted_pnl = calculate_pnl_metrics(
+                trade_cost_pct, net_pnl_pct, risk_adjusted_pnl = me.calculate_pnl_metrics(
                     original_close,
                     self.entry_price,
                     self.trading_fee,
@@ -452,7 +425,7 @@ class MarketEnv:
         self.portfolio_value = self.cash + (original_close * float(self.holding))
 
         # Normalize and clip reward
-        reward = normalize_reward(reward)
+        reward = me.normalize_reward(reward)
         reward = np.clip(0.0 if np.isnan(reward) else reward, -10.0, 10.0)
         
         self.current_step += 1
