@@ -37,8 +37,6 @@ class MarketEnv:
         # Constants for window sizes
         self.RETURNS_WINDOW_SIZE = 30
         
-        
-        self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         # Add risk metric windows
