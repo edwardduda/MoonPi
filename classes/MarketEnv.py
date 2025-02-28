@@ -21,13 +21,11 @@ class MarketEnv:
         self.RETURNS_WINDOW_SIZE = 30
         
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
-        
+        self.lookback = 30
         # Add risk metric windows
-        self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
-        self.VOLATILITY_WINDOW = 30  # For calculating rolling volatility
         self.RELATIVE_STRENGTH_WINDOW = 30
-        self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
-        self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
+        self.sharpe_window = np.zeros(self.lookback)
+        self.volatility_window = np.zeros(self.lookback)
         self.risk_feature_dim = 3 
         # Get feature dimensions (excluding Close and Ticker)
         self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
@@ -36,8 +34,8 @@ class MarketEnv:
         self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
         
         # Initialize numpy arrays for windows
-        self.price_window = np.zeros(self.segment_size)
-        self.feature_window = np.zeros((self.segment_size, len(self.feature_columns)))
+        self.price_window = np.zeros(self.segment_size, dtype=np.float32)
+        self.feature_window = np.zeros((self.segment_size, len(self.feature_columns)), dtype=np.float32)
         self.tech_window = np.zeros((self.segment_size - self.num_projected_days, len(self.tech_feature_columns)))
         self.returns_window = np.zeros(self.RETURNS_WINDOW_SIZE, dtype=np.float32)
         self.date_window = np.zeros(self.segment_size, dtype='datetime64[ns]')
@@ -96,33 +94,7 @@ class MarketEnv:
             # Roll the window and update the newest value
             self.feature_window[:-1] = self.feature_window[1:]
             self.feature_window[-1] = features
-            
-    def calculate_risk_metrics(self, current_price):
-        # Calculate rolling Sharpe ratio
-        if len(self.returns_window) >= self.SHARPE_WINDOW:
-            recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
-            sharpe = me.calculate_local_sharpe(recent_returns, self.SHARPE_WINDOW)
-        else:
-            sharpe = 0.0
-            
-        # Calculate rolling volatility
-        if len(self.returns_window) >= self.VOLATILITY_WINDOW:
-            recent_returns = self.returns_window[-self.VOLATILITY_WINDOW:]
-            volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
-        else:
-            volatility = 0.0
-            
-        # Calculate relative strength
-        if self.window_position > 0 or self.windows_filled:
-            rel_strength = me.calculate_relative_strength(
-                self.price_window, 
-                self.window_position if not self.windows_filled else len(self.price_window) - 1,
-                self.RELATIVE_STRENGTH_WINDOW
-            )
-        else:
-            rel_strength = 0.0
-            
-        return sharpe, volatility, rel_strength
+    
     def _shuffle_segments(self):
         if not self.shuffled_segments:
             self.shuffled_segments = self.segments.copy()
@@ -131,7 +103,7 @@ class MarketEnv:
     def get_state(self):
         try:
             # Calculate risk metrics
-            sharpe, volatility, rel_strength = self.calculate_risk_metrics(self.price_window[-1])
+            sharpe, volatility, rel_strength = me.calculate_risk_metrics(self.price_window[-1], self.window_position, self.lookback, self.price_window, self.returns_window)
             
             # Risk and portfolio state features
             risk_state = np.array([sharpe, volatility, rel_strength])

@@ -46,9 +46,6 @@ class EpisodeLogger:
             'low': info.get('low', 0),    # Log low price
             'close': info.get('close', 0), # Log close price
             'date' : info.get('date', None),
-            'sharpe_ratio': info.get('sharpe_ratio', 0),
-            'volatility': info.get('volatility', 0),
-            'relative_strength': info.get('relative_strength', 0)
         }
         
         self.episode_data.append(step_data)
