@@ -10,7 +10,7 @@ def normalize_reward(reward):
     return reward
 
 @jit(nopython=True, cache=True)
-def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
+def calculate_local_sharpe(returns: np.ndarray, lookback : int) -> float:
     """Calculate annualized Sharpe ratio"""
     if len(returns) < lookback:
         return 0.0
@@ -25,7 +25,7 @@ def calculate_local_sharpe(returns: np.ndarray, lookback: int = 30) -> float:
     return (avg_return - 0.02) / std_return
 
 @jit(nopython=True, cache=True)
-def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int = 40) -> float:
+def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: int) -> float:
     """Calculate relative strength indicator"""
     if current_idx < window:
         return 0.0
@@ -41,9 +41,9 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     return (current_price - avg_price) / avg_price
 
 @jit(nopython=True, cache=True)
-def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window, position_size=1.0):
+def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_value, returns_window):
     # Calculate raw PnL percentage
-    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4)) * position_size
+    pnl_pct = ((current_price - entry_price) / (abs(entry_price) + 1e-4))
         
     # Calculate trade costs
     trade_cost_pct = (trading_fee * 2) / portfolio_value
@@ -67,25 +67,6 @@ class SegmentRiskMetrics:
         self.segment_size = segment_size
         self.risk_free_rate = 0.02
                 
-    def get_risk_reward_multiplier(self, segment_data, current_idx):
-        """
-        Calculate risk-adjusted reward multiplier using only information
-        available within the current segment up to current_idx
-        """
-        if current_idx < 2:
-            return 1.0                
-        # Combine metrics into multiplier
-        vol_factor = 1.05   # Lower volatility = higher multiplier
-        sharpe_factor = 1.05 # Scale Sharpe to [0,1]
-        strength_factor = 1.05  # Scale strength to [0,1]
-        
-        # Weighted combination
-        multiplier = (0.4 * vol_factor + 
-                     0.4 * sharpe_factor + 
-                     0.2 * strength_factor)
-        
-        return np.clip(multiplier, 0.1, 2.0)  # Limit multiplier range
-
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
                 trading_fee, hold_penalty, max_hold_steps, segment_size, num_projected_days):
@@ -106,11 +87,11 @@ class MarketEnv:
         self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
-        # Add risk metric windows
-        self.SHARPE_WINDOW = 30  # For calculating rolling Sharpe ratio
+        self.lookback = 30
+        # Add risk metric windows  # For calculating rolling Sharpe ratio
         self.VOLATILITY_WINDOW = 30  # For calculating rolling volatility
-        self.sharpe_window = np.zeros(self.SHARPE_WINDOW)
-        self.volatility_window = np.zeros(self.VOLATILITY_WINDOW)
+        self.sharpe_window = np.zeros(self.lookback)
+        self.volatility_window = np.zeros(self.lookback)
         self.risk_feature_dim = 3 
         # Get feature dimensions (excluding Close and Ticker)
         self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
@@ -131,7 +112,7 @@ class MarketEnv:
         self.windows_filled = False
         
         # Create segments
-        self.segments = self._create_segments()
+        self.segments = self.create_segments()
         self.shuffled_segments = []
         self._shuffle_segments()
         
@@ -152,7 +133,7 @@ class MarketEnv:
             self.high = high
             self.shape = low.shape
             
-    def _update_window(self, window, value, position):
+    def update_window(self, window, value, position):
         """Helper method to update rolling windows"""
         if not self.windows_filled:
             window[position] = value
@@ -161,7 +142,7 @@ class MarketEnv:
             window[:-1] = window[1:]
             window[-1] = value
             
-    def _create_segments(self):
+    def create_segments(self):
         segments = []
         for ticker, stock_data in self.full_data.groupby("Ticker"):
             num_segments = len(stock_data) // self.segment_size
@@ -171,7 +152,7 @@ class MarketEnv:
                     segments.append(segment)
         return segments
     
-    def _update_feature_window(self, features, position):
+    def update_feature_window(self, features, position):
         """Helper method to update feature window"""
         if not self.windows_filled:
             self.feature_window[position] = features
@@ -181,30 +162,25 @@ class MarketEnv:
             self.feature_window[-1] = features
             
     def calculate_risk_metrics(self, current_price):
-        # Calculate rolling Sharpe ratio
-        if len(self.returns_window) >= self.SHARPE_WINDOW:
-            recent_returns = self.returns_window[-self.SHARPE_WINDOW:]
-            sharpe = calculate_local_sharpe(recent_returns)
-        else:
-            sharpe = 0.0
-            
-        # Calculate rolling volatility
-        if len(self.returns_window) >= self.VOLATILITY_WINDOW:
-            recent_returns = self.returns_window[-self.VOLATILITY_WINDOW:]
+        
+        sharpe = 0.0
+        volatility = 0.0
+        rel_strength = 0.0
+        if len(self.returns_window) >= self.lookback:
+            recent_returns = self.returns_window[-self.lookback:]
+            sharpe = calculate_local_sharpe(recent_returns, self.lookback)
             volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
-        else:
-            volatility = 0.0
             
         # Calculate relative strength
         if self.window_position > 0 or self.windows_filled:
             rel_strength = calculate_relative_strength(
                 self.price_window, 
-                self.window_position if not self.windows_filled else len(self.price_window) - 1
+                self.window_position if not self.windows_filled else len(self.price_window) - 1,
+                self.lookback
             )
-        else:
-            rel_strength = 0.0
-            
+                    
         return sharpe, volatility, rel_strength
+    
     def _shuffle_segments(self):
         if not self.shuffled_segments:
             self.shuffled_segments = self.segments.copy()
@@ -279,9 +255,9 @@ class MarketEnv:
         initial_date = self.data.index[0]
         
         # Update windows with initial values
-        self._update_window(self.price_window, initial_price, 0)
-        self._update_feature_window(initial_features, 0)
-        self._update_window(self.date_window, np.datetime64(initial_date), 0)
+        self.update_window(self.price_window, initial_price, 0)
+        self.update_feature_window(initial_features, 0)
+        self.update_window(self.date_window, np.datetime64(initial_date), 0)
         
         # Reset state variables
         self.current_step = 0
@@ -313,15 +289,15 @@ class MarketEnv:
         next_pos = (self.window_position + 1) % self.segment_size
         self.windows_filled = self.windows_filled or next_pos == 0
         
-        self._update_window(self.price_window, norm_price, self.window_position)
-        self._update_feature_window(current_features, self.window_position)
-        self._update_window(self.date_window, np.datetime64(current_date), self.window_position)
+        self.update_window(self.price_window, norm_price, self.window_position)
+        self.update_feature_window(current_features, self.window_position)
+        self.update_window(self.date_window, np.datetime64(current_date), self.window_position)
         
         # Calculate returns using normalized prices for state features
         if self.window_position > 0 or self.windows_filled:
             prev_price = self.price_window[self.window_position - 1] if not self.windows_filled else self.price_window[-2]
             returns = ((norm_price - prev_price) / prev_price) if prev_price != 0 else 0.0
-            self._update_window(self.returns_window, returns, self.returns_position)
+            self.update_window(self.returns_window, returns, self.returns_position)
             self.returns_position = (self.returns_position + 1) % self.RETURNS_WINDOW_SIZE
         
         self.window_position = next_pos

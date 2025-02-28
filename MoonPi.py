@@ -129,7 +129,7 @@ def main():
         print("\nStarting training...")
     
         trained_model = training_module.train(should_exit_flag=lambda: should_exit)
-
+        '''
         if not should_exit:
             
         # Save the trained model
@@ -146,6 +146,7 @@ def main():
         }, 'trained_attention_dqn.pth')
 
         print("\nTraining complete! Model saved!")
+        '''
     except Exception as e:
         print(f"\nAn error occurred: {e}")
     finally:
