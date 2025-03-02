@@ -253,7 +253,7 @@ class AttentionDQN(nn.Module):
         # Create a mask for any padded tokens.
         zero_mask = (x_proc.abs().sum(dim=-1, keepdim=True) == 0)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
-
+        
         # Apply Astro block.
         x_proc, feature_weights = self.astro_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
@@ -265,6 +265,7 @@ class AttentionDQN(nn.Module):
         # Apply Temporal block.
         x_proc, temporal_weights = self.temporal_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        
         
         # Global average pooling.
         valid_tokens = (~zero_mask)

@@ -149,9 +149,9 @@ class Training:
             loss=loss.item(),
             main_q_values=current_q_values,
             target_q_values=target_next_q_values,
+            feature_weights=feature_weights,
             technical_weights=technical_weights,
-            temporal_weights=temporal_weights,
-            feature_weights=feature_weights
+            temporal_weights=temporal_weights
         )
 
         self.total_steps += 1
@@ -262,7 +262,7 @@ class Training:
         self.episodes_done += 1
         if (self.episodes_done % 500 == 0 and self.env.max_trades_per_month > 8):
             self.env.max_trades_per_month -= 1
-        if self.episodes_done % 100 == 0:
+        if self.episodes_done % 50 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
     

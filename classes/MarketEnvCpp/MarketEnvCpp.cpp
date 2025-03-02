@@ -6,15 +6,13 @@
 #include <algorithm>
 #include <cmath>
 #include <rapidcsv.h>
+#include <DataFrame/DataFrame.h>
 
 namespace py = pybind11;
 
 class MarketEnv {
     
 private:
-    struct Date{
-        int month, day, year;
-    }
 
     float clip(float value, float lower, float upper) {
         return std::max(lower, std::min(value, upper));
@@ -43,10 +41,7 @@ private:
         return 0.0f;
     }
 
-    float calculate_local_sharpe(
-        const std::vector<float>& returns_vector,
-        int window_lookback
-    ) {
+    float calculate_local_sharpe(const std::vector<float>& returns_vector,int window_lookback) {
         float risk_free_rate = 0.02f;
     
         if (returns_vector.size() < window_lookback) {
