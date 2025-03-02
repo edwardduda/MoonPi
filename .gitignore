@@ -10,3 +10,14 @@ classes/.DS_Store
 full_df.csv
 .venv
 .DS_Store
+cpptesting/rapidcsvtest.cpp
+.gitignore
+cpptesting/include/rapidcsv.h
+cpptesting/src/rapidcsvtest.o
+cpptesting/weathertestset.csv
+cpptesting/testfile
+cpptesting/sample_dataset.csv
+cpptesting/Makefile
+cpptesting/src/rapidcsvtest.cpp
+classes/MarketEnvCpp/setup.py
+.gitignore

@@ -37,12 +37,6 @@ def check_state_dimensions(env, model, device):
     #print("Model output Q-values shape:", q_values.shape)
     # If q_values shape is (1, action_dim) then everything looks good.
     
-def signal_handler(signum, frame):
-    """Handle Ctrl+C signal"""
-    global should_exit
-    print('\nReceived signal to exit. Cleaning up...')
-    should_exit = True
-    
 def initialize_models(state_dim, action_dim, config):
     print('made')
     main_model = AttentionDQN(
@@ -55,26 +49,6 @@ def initialize_models(state_dim, action_dim, config):
     target_model.eval() 
 
     return main_model, target_model
-
-def cleanup(training_module=None, model=None):
-    """Cleanup function to release resources"""
-    try:
-        if training_module and hasattr(training_module, 'logger'):
-            training_module.logger.close()
-        
-        if model:
-            # Save checkpoint
-            print("\nSaving checkpoint...")
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'training_step': training_module.total_steps if training_module else 0,
-                'checkpoint_type': 'interrupt'
-            }, 'model_checkpoint_interrupt.pth')
-            
-    except Exception as e:
-        print(f"Error during cleanup: {e}")
-    
-    print("Cleanup complete. Exiting...")
     
 def load_df(config):
     try:
@@ -87,7 +61,6 @@ def load_df(config):
     
 def main():
     config = Config()
-    signal.signal(signal.SIGINT, signal_handler)
     training_module=None
     try:
         full_df = load_df(config=config)
@@ -149,8 +122,6 @@ def main():
         '''
     except Exception as e:
         print(f"\nAn error occurred: {e}")
-    finally:
-        cleanup(training_module, main_model)
 
 if __name__ == "__main__":
     main()
