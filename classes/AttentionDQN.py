@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 from classes.Config import Config
+import cProfile
+import pstats
 
 class TechnicalAttentionBlock(nn.Module):
     def __init__(self, embed_dim, tech_num_heads, dropout_rate, num_techs, tech_dim):
@@ -161,7 +163,6 @@ class AttentionDQN(nn.Module):
     def __init__(self, state_dim, action_dim, batch_size):
         super().__init__()
         self.config = Config()
-        # Define the holding flag index (update this as needed).
         self.holding_flag_index = -4
         self.dropout = self.config.TRAINING_PARMS.get('DROPOUT_RATE')
         self.state_dim = state_dim  # (seq_len, num_features)
@@ -174,15 +175,16 @@ class AttentionDQN(nn.Module):
         self.astro_dim = self.config.ARCHITECTURE_PARMS.get('ASTRO_DIM')
         self.embed_dim = self.config.ARCHITECTURE_PARMS.get("EMBED_DIM")
         self.tech_dim = self.config.ARCHITECTURE_PARMS.get('TECH_DIM')
+        # These are still in case you need multiple later:
         self.num_temporal_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_TEMPORAL_LAYERS")
         self.num_astro_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_ASTRO_LAYERS")
         self.num_tech_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_TECH_LAYERS")
         
-        # Define the technical tokens:
-        self.num_tech_total = 11  # originally expected technical tokens (including the holding flag)
-        self.num_tech = self.num_tech_total  # processed by technical blocks (holding flag removed)
+        # Define technical tokens.
+        self.num_tech_total = 11  
+        self.num_tech = self.num_tech_total
         
-        # Update input projection to expect one less feature (holding flag removed).
+        # Input projection (note the holding flag removal).
         self.input_projection = nn.Sequential(
             nn.Linear(self.num_features - 1, self.embed_dim),
             nn.LayerNorm(self.embed_dim),
@@ -193,24 +195,18 @@ class AttentionDQN(nn.Module):
         self.register_buffer('pos_encoding', self._get_sinusoidal_encoding(self.seq_len, self.embed_dim))
         self.pos_dropout = nn.Dropout(self.dropout)
         
-        # Technical attention blocks (update token count to self.num_tech).
-        self.tech_blocks = nn.ModuleList([
-            TechnicalAttentionBlock(
-                self.embed_dim, self.num_tech_heads, self.dropout, self.num_tech, self.config.ARCHITECTURE_PARMS.get("TECH_DIM"))
-            for _ in range(self.num_tech_blocks)
-        ])
-        
-        # Temporal attention blocks.
-        self.temporal_blocks = nn.ModuleList([
-            TemporalAttentionBlock(self.embed_dim, self.num_temporal_heads, self.dropout)
-            for _ in range(self.num_temporal_blocks)
-        ])
-
-        # Astro attention blocks operate on the remaining tokens.
-        self.astro_blocks = nn.ModuleList([
-            AstroAttentionBlock(self.embed_dim, self.num_astro_heads, self.dropout, self.num_features - self.num_tech_total, self.astro_dim)
-            for _ in range(self.num_astro_blocks)
-        ])
+        # Instead of ModuleList, create one block each.
+        self.astro_block = AstroAttentionBlock(
+            self.embed_dim, self.num_astro_heads, self.dropout,
+            self.num_features - self.num_tech_total, self.astro_dim
+        )
+        self.tech_block = TechnicalAttentionBlock(
+            self.embed_dim, self.num_tech_heads, self.dropout,
+            self.num_tech, self.config.ARCHITECTURE_PARMS.get("TECH_DIM")
+        )
+        self.temporal_block = TemporalAttentionBlock(
+            self.embed_dim, self.num_temporal_heads, self.dropout
+        )
 
         self.final_norm = nn.LayerNorm(self.embed_dim)
         
@@ -228,11 +224,9 @@ class AttentionDQN(nn.Module):
     def _get_sinusoidal_encoding(self, seq_len, d_model):
         position = torch.arange(seq_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        
         pos_encoding = torch.zeros(1, seq_len, d_model)
         pos_encoding[0, :, 0::2] = torch.sin(position * div_term)
         pos_encoding[0, :, 1::2] = torch.cos(position * div_term)
-        
         return pos_encoding
     
     def _init_weights(self):
@@ -243,20 +237,16 @@ class AttentionDQN(nn.Module):
                     nn.init.zeros_(module.bias)
     
     def forward(self, x):
-        # x shape: (batch, seq_len, num_features)
         batch, seq_len, num_features = x.shape
         if (seq_len, num_features) != self.state_dim:
             raise ValueError(f"Expected state dimensions {self.state_dim} but got ({seq_len}, {num_features})")
         
         # 1. Separate the holding flag.
-        # The holding flag is assumed to be at self.holding_flag_index.
-        holding_flag = x[:, :, self.holding_flag_index].unsqueeze(-1)  # shape: (batch, seq_len, 1)
-        
-        # 2. Remove the holding flag from the remaining features.
+        holding_flag = x[:, :, self.holding_flag_index].unsqueeze(-1)
+        # 2. Remove the holding flag.
         x_proc = torch.cat([x[:, :, :self.holding_flag_index], x[:, :, self.holding_flag_index+1:]], dim=-1)
-        # Now x_proc has shape (batch, seq_len, num_features - 1)
         
-        # 3. Run the remaining features through the network.
+        # 3. Input projection and add positional encoding.
         x_proc = self.input_projection(x_proc)
         x_proc = x_proc + self.pos_dropout(self.pos_encoding[:, :seq_len, :])
         
@@ -264,38 +254,30 @@ class AttentionDQN(nn.Module):
         zero_mask = (x_proc.abs().sum(dim=-1, keepdim=True) == 0)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
-        # Technical attention blocks.
-        technical_weights = []
-        for block in self.tech_blocks:
-            x_proc, weights = block(x_proc)
-            technical_weights.append(weights)
-            x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        # Apply Astro block.
+        x_proc, feature_weights = self.astro_block(x_proc)
+        x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
-        # Temporal attention blocks.
-        temporal_weights = []
-        for block in self.temporal_blocks:
-            x_proc, weights = block(x_proc)
-            temporal_weights.append(weights)
-            x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        # Apply Technical block.
+        x_proc, technical_weights = self.tech_block(x_proc)
+        x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
-        # Astro attention blocks.
-        feature_weights = []
-        for block in self.astro_blocks:
-            x_proc, weights = block(x_proc)
-            feature_weights.append(weights)
-            x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        # Apply Temporal block.
+        x_proc, temporal_weights = self.temporal_block(x_proc)
+        x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        
         
         # Global average pooling.
-        valid_tokens = (~zero_mask).half()
+        valid_tokens = (~zero_mask)
         x_proc = (x_proc * valid_tokens).sum(dim=1) / (valid_tokens.sum(dim=1) + 1e-8)
         
-        # Final normalization and projection.
+        # Final normalization and Q-value projection.
         x_proc = self.final_norm(x_proc)
         q_values = self.q_values(x_proc).half().float()
         
-        # 4. Gate the final Q-values with the holding flag.
-        # Aggregate the holding flag over the sequence dimension and apply a sigmoid.
-        gate = torch.sigmoid(holding_flag.mean(dim=1))  # shape: (batch, 1)
+        # Gate the final Q-values with the holding flag.
+        gate = torch.sigmoid(holding_flag.mean(dim=1))
         q_values = q_values * gate
         
         return q_values, (technical_weights, temporal_weights, feature_weights)
+

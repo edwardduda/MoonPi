@@ -100,9 +100,14 @@ class DQNLogger:
                     )
     
     def log_attention_heatmaps(self, temporal_weights, feature_weights, technical_weights=None):
-        """
-        Updates running averages and stores a copy of the current attention buffers offline.
-        """
+        # Ensure the attention weights are lists.
+        if not isinstance(temporal_weights, (list, tuple)):
+            temporal_weights = [temporal_weights]
+        if not isinstance(feature_weights, (list, tuple)):
+            feature_weights = [feature_weights]
+        if technical_weights is not None and not isinstance(technical_weights, (list, tuple)):
+            technical_weights = [technical_weights]
+        
         plt.ioff()
         try:
             valid_weights = (
@@ -129,6 +134,7 @@ class DQNLogger:
             logging.warning(f"Error in log_attention_heatmaps: {e}")
         finally:
             plt.ion()
+
     
     def log_metrics(self, metrics):
         """

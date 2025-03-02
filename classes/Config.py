@@ -3,7 +3,7 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-            'SEGMENT_SIZE' : int(120), #time window size      252 = 1 fiscal year
+            'SEGMENT_SIZE' : int(100), #time window size      252 = 1 fiscal year
             'DATASET_CSV' : "full_df.csv",
             'NUM_FEATURES' : None
         }
@@ -12,10 +12,10 @@ class Config:
             'EPISODES' : 8000,
             'BATCH_SIZE' : 24,
             'BUFFER_SIZE' : 200000,
-            'MIN_REPLAY_SIZE' : 180000 ,
+            'MIN_REPLAY_SIZE' : 180000,
             'MIN_LEARNING_RATE' : 1e-5,
             'LEARNING_RATE' : 1e-4,
-            'GAMMA' : 0.997,
+            'GAMMA' : 0.9997,
             'TAU' : 0.06,
             'DROPOUT_RATE' : 0.1,
             'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
@@ -41,11 +41,11 @@ class Config:
         }
         
         self.MARKET_ENV_PARMS = {
-        'NUM_PROJECTED_DAYS' : 35,
+        'NUM_PROJECTED_DAYS' : 15,
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
         'MAX_HOLD_STEPS' : 28,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.05,
-        'MAX_TRADES_PER_MONTH' : 5,
+        'MAX_TRADES_PER_MONTH' : 18,
         }

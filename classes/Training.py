@@ -11,12 +11,13 @@ from classes.DQNLogger import DQNLogger
 from classes.LearningRateScheduler import EpsilonMatchingLRScheduler
 from classes.EpisodeLogger import EpisodeLogger
 import gc
+import cProfile
+import pstats
 
 import logging
 
 class Training:
     def __init__(self, env, main_model, target_model, config):
-        
         self.config = config
         self.episode_logger = EpisodeLogger()
         self.env=env
@@ -39,6 +40,17 @@ class Training:
         self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
         self.min_lr=config.TRAINING_PARMS.get('MIN_LEARNING_RATE')
         
+        self.info={
+            'portfolio_value': None,
+            'current_price': None,
+            'initial_capital': None,
+            'q_values': None,
+            'open': None,  # Ensure open price is logged
+            'high': None,  # High price
+            'low': None,    # Low price
+            'close': None, # Close price
+            'date': None,
+            }
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
@@ -80,6 +92,8 @@ class Training:
             return self.epsilon_schedule.epsilon
         
     def training_step(self):
+        #profiler = cProfile.Profile()
+        #profiler.enable()
         transitions = random.sample(self.replay_buffer, self.batch_size)
         batch = self.transition(*zip(*transitions))
 
@@ -92,7 +106,7 @@ class Training:
         current_q_values, curr_attention = self.main_model(state_batch)
         technical_weights, temporal_weights, feature_weights = curr_attention
         action_q_values = current_q_values.gather(1, action_batch)
-
+        
         # Calculate target Q values
         with torch.no_grad():
             next_q_values, _ = self.main_model(next_state_batch)
@@ -107,12 +121,15 @@ class Training:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), max_norm=1.05)
         self.optimizer.step()
-
+        
         # Update target network
         with torch.no_grad():
             for target_param, param in zip(self.target_model.parameters(), self.main_model.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
+        #profiler.disable()
+        #stats = pstats.Stats(profiler).sort_stats('cumtime')
+        #stats.print_stats()
         # Log step data
         self.episode_logger.log_training_step(
             state_batch=state_batch,
@@ -132,19 +149,18 @@ class Training:
             loss=loss.item(),
             main_q_values=current_q_values,
             target_q_values=target_next_q_values,
+            feature_weights=feature_weights,
             technical_weights=technical_weights,
-            temporal_weights=temporal_weights,
-            feature_weights=feature_weights
+            temporal_weights=temporal_weights
         )
-        
-        self.logger.log_feature_importance(feature_weights, self.logger.feature_names)
 
         self.total_steps += 1
         
         if len(self.replay_buffer) >= self.min_replay_size:
             self.epsilon_schedule.step()
-    
+        
     def take_action(self, state, state_tensor):
+        
         if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.epsilon:
             action = self.env.action_space.sample()
         else:
@@ -152,7 +168,7 @@ class Training:
                 q_values, _ = self.main_model(state_tensor)  # Note: unpack the attention weights
                 action = q_values.max(1)[1].item()
             
-        next_state, reward, done, info = self.env.step(action)  # Unpack done flag
+        next_state, reward, done, self.env.info = self.env.step(action)  # Unpack done flag
     
         # Store transition in replay buffer
         self.replay_buffer.append(self.transition(state, action, reward, next_state, done))
@@ -170,6 +186,8 @@ class Training:
         done = False
         
         while not done:
+            #profiler = cProfile.Profile()
+            #profiler.enable()
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             
             # Get action and Q-values
@@ -183,29 +201,26 @@ class Training:
                     action = q_values_tensor.max(1)[1].item()
             
             # Take action and get next state
-            next_state, reward, done, info = self.env.step(action)
+            next_state, reward, done, self.env.info = self.env.step(action)
+             # Only log step data if replay buffer is filled
             
-            sharpe, volatility, rel_strength = self.env.calculate_risk_metrics(info['current_price'])
-            # Only log step data if replay buffer is filled
             if len(self.replay_buffer) >= self.min_replay_size:
+                self.info.update({
+                        'portfolio_value': self.env.info['portfolio_value'],
+                        'current_price': self.env.info['current_price'],
+                        'initial_capital': initial_capital,
+                        'q_values': q_values,
+                        'open': self.env.info.get('open'),  # Ensure open price is logged
+                        'high': self.env.info.get('high'),  # High price
+                        'low': self.env.info.get('low'),    # Low price
+                        'close': self.env.info.get('close'), # Close price
+                        'date': self.env.info.get('date'),
+                    })
                 self.episode_logger.log_step(
                     state=state,
                     action=action,
                     reward=reward,
-                    info={
-                        'portfolio_value': info['portfolio_value'],
-                        'current_price': info['current_price'],
-                        'initial_capital': initial_capital,
-                        'q_values': q_values,
-                        'open': info.get('open'),  # Ensure open price is logged
-                        'high': info.get('high'),  # High price
-                        'low': info.get('low'),    # Low price
-                        'close': info.get('close'), # Close price
-                        'date': info.get('date'),
-                        'sharpe_ratio': sharpe,
-                        'volatility': volatility,
-                        'relative_strength': rel_strength
-                    }
+                    info= self.info
                 )
 
             # Store transition in replay buffer
@@ -226,7 +241,9 @@ class Training:
             
             episode_reward += reward
             state = next_state
-        
+            #profiler.disable()
+            #stats = pstats.Stats(profiler).sort_stats('cumtime')
+            #stats.print_stats()
         # Log episode completion data
         final_portfolio_value = self.env.portfolio_value
         self.logger.log_episode_pnl(initial_capital, final_portfolio_value)
@@ -243,8 +260,9 @@ class Training:
             print(f"\nLogged episode {self.episodes_done} (replay buffer ready)")
         
         self.episodes_done += 1
-        
-        if self.episodes_done % 500 == 0:
+        if (self.episodes_done % 500 == 0 and self.env.max_trades_per_month > 8):
+            self.env.max_trades_per_month -= 1
+        if self.episodes_done % 50 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
     
