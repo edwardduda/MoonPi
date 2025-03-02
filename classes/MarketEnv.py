@@ -63,11 +63,6 @@ def calculate_pnl_metrics(current_price, entry_price, trading_fee, portfolio_val
         risk_adjusted_pnl = net_pnl_pct
             
     return trade_cost_pct, net_pnl_pct, risk_adjusted_pnl
-
-class SegmentRiskMetrics:
-    def __init__(self, segment_size):
-        self.segment_size = segment_size
-        self.risk_free_rate = 0.02
                 
 class MarketEnv:
     def __init__(self, data, initial_capital, max_trades_per_month, 
@@ -85,7 +80,6 @@ class MarketEnv:
         # Constants for window sizes
         self.RETURNS_WINDOW_SIZE = 30
         
-        self.risk_metrics = SegmentRiskMetrics(segment_size=segment_size)
         self.action_space = self.ActionSpace(3)  # 0: Hold, 1: Buy, 2: Sell
         
         self.lookback = 30
@@ -120,10 +114,7 @@ class MarketEnv:
         self.volatility = 0.0
         self.rel_strength = 0.0
         self.reward_val = 0.0
-        # Initialize observation space
-        high = np.inf * np.ones((self.segment_size, self.state_dim))
-        low = -np.inf * np.ones((self.segment_size, self.state_dim))
-        self.observation_space = self.Box(low=low, high=high)
+
         
         self.info = {
             'portfolio_value': None,

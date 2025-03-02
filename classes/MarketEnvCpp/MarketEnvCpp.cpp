@@ -4,15 +4,58 @@
 #include <vector>
 #include <numeric>
 #include <algorithm>
+#include <random>
 #include <cmath>
 #include <rapidcsv.h>
 #include <DataFrame/DataFrame.h>
+#include <DataFrame/Utils/DateTime.h>
 
 namespace py = pybind11;
+
 
 class MarketEnv {
     
 private:
+
+    float initial_capital;
+    int max_trades_per_month; 
+    float trading_fee;
+    float hold_penalty;
+    int max_hold_steps;
+    int segment_size;
+    int num_projected_days;
+
+    int lookback = 30;
+    std::string full_data;
+        
+
+    std::vector<float> sharpe_window;
+    std::vector<float> volatility_window;
+    int risk_feature_dim = 3;
+    //Get feature dimensions (excluding Close and Ticker)
+    //self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
+    //self.astro_feature_columns = [col for col in self.full_data.columns if col not in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open', "Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
+    //self.tech_feature_columns = [col for col in self.full_data.columns if col in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open']]
+    //self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
+        
+    std::vector<float> price_window;
+    std::vector<float>feature_window;
+    std::vector<float> tech_window;
+    std::vector<float>returns_window;
+    //std::vector<__DATE__>date_window;
+        
+    int window_position = 0;
+    int returns_position = 0;
+    bool windows_filled = false;
+        
+    std::random_device rd;
+    
+    float sharpe = 0.0;
+    float volatility = 0.0;
+    float rel_strength = 0.0;
+    float reward_val = 0.0;
+        
+    //std::vector<float, float, float, float, float, float, std::string, int, float, bool> info;
 
     float clip(float value, float lower, float upper) {
         return std::max(lower, std::min(value, upper));
@@ -78,6 +121,14 @@ private:
         float avg_price = sum / (current_idx - start_idx);
     
         return (current_price - avg_price) / avg_price;
+    }
+
+    int action_space(int possible_actions){
+
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<int> distrib(1, possible_actions);
+        int random_number = distrib(gen);
+        return random_number;
     }
 
 public:
