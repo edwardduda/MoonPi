@@ -114,7 +114,6 @@ class MarketEnv:
         self.volatility = 0.0
         self.rel_strength = 0.0
         self.reward_val = 0.0
-
         
         self.info = {
             'portfolio_value': None,
@@ -127,7 +126,6 @@ class MarketEnv:
             'action_taken': None,
             'cash': None,
             'holding': None,
-            'action_taken': None,
         }
     
     class ActionSpace:

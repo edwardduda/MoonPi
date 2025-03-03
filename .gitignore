@@ -29,3 +29,6 @@ classes/MarketEnvCpp/MarketEnvCpp.egg-info/top_level.txt
 classes/MarketEnvCpp/build/temp.macosx-15.0-arm64-cpython-311/MarketEnvCpp.o
 classes/MarketEnvCpp/build/lib.macosx-15.0-arm64-cpython-311/MarketEnvCpp.cpython-311-darwin.so
 classes/MarketEnvCpp/MarketEnvCpp.cpython-311-darwin.so
+classes/sample_dataset.csv
+classes/weathertestset.csv
+classes/test.py
