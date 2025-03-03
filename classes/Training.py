@@ -13,7 +13,6 @@ from classes.EpisodeLogger import EpisodeLogger
 import gc
 import cProfile
 import pstats
-
 import logging
 
 class Training:

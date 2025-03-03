@@ -10,6 +10,7 @@
 #include "rapidcsv.h"
 #include <DataFrame/DataFrame.h>
 #include <DataFrame/Utils/DateTime.h>
+#include <iomanip>
 
 namespace py = pybind11;
 using namespace hmdf;
@@ -36,10 +37,10 @@ private:
     float trading_fee;
     float hold_penalty;
     int max_hold_steps;
-    int segment_size;
     int num_projected_days;
     */
-    
+    std::vector<std::string> column_names;
+    int segment_size;
     std::string full_data;
     StdDataFrame<unsigned long> full_df;
     /*
@@ -145,10 +146,21 @@ private:
         int random_number = distrib(gen);
         return random_number;
     }
+    /*
+    void std::vector<std::vector<DataFrame>> create_segments(int& segment_size){
+        std::vector<std::vector<DataFrame>> segments;
+        column_names;
+        StdDataFrame<unsigned long> temp_df;
 
-    
+        for (size_t i = 0; i < segment_size; i++) {
+            std::vector<float> col_data = doc.GetColumn<float>(col_name);
+            temp_df.load_column(col_name.c_str(), std::move(col_data));
+        }
+    }
+    */
+
 public:
-    
+
     std::tuple<float, float, float> calculate_pnl_metrics(
         const float current_price, 
         const float entry_price, 
@@ -196,7 +208,7 @@ public:
     void create_df(std::string& df_name){
 
         rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, -1));
-        std::vector<std::string> column_names = doc.GetColumnNames();
+        column_names = doc.GetColumnNames();
         size_t n_rows = doc.GetRowCount();
 
         std::vector<unsigned long> idx;
@@ -209,16 +221,48 @@ public:
             std::vector<float> col_data = doc.GetColumn<float>(col_name);
             full_df.load_column(col_name.c_str(), std::move(col_data));
         }
-
         
-        std::cout << "DataFrame shape: (" << full_df.shape().first << ", " << full_df.shape().second << ")" << std::endl;
-        
+        //std::cout << "DataFrame shape: (" << full_df.shape().first << ", " << full_df.shape().second << ")" << std::endl;
+        /*
         std::vector<float> macd_col = full_df.get_column<float>("MACD");
-
-        for(size_t i = 0; i < macd_col.size(); i++){
+        for(size_t i = 0; i < column_names.size(); i++){
             std::cout << "Index: " << i << " value: "<< macd_col[i] << std::endl;
         }
+        for (const auto& col_name : column_names) {
+            std::vector<float> values = full_df.get_column<float>(col_name.c_str());
+            for (size_t j = 0; j < values.size(); j++) {
+                std::cout  << " Value: " << values[j] << std::endl;
+            }
+        }
+        */
+        
+        // Print header row (column names)
+        std::cout << std::setw(10) << "Index";
+        for (const auto& col_name : column_names) {
+            std::cout << std::setw(15) << col_name;
+        }
+        std::cout << "\n";
+
+        // Print a separator line (optional)
+        //std::cout << std::string(10 + 15 * column_names.size(), '-') << "\n";
+
+        // Get number of rows from the DataFrame shape
+        //size_t n_rows = full_df.shape().first;
+
+        // Iterate over rows and print each row's data
+        for (size_t i = 0; i < full_df.shape().first; i++) {
+            std::cout << std::setw(15) << i;
+            for (const auto& col_name : column_names) {
+                // Retrieve the column vector; note that this retrieves by name each time.
+                // If performance becomes an issue, consider caching these vectors.
+                std::vector<float> col_data = full_df.get_column<float>(col_name.c_str());
+                std::cout << std::setw(15) << col_data[i];
+            }
+            std::cout << "\n";
+        }
     }
+    
+
 };
 
 PYBIND11_MODULE(MarketEnvCpp, m) {
