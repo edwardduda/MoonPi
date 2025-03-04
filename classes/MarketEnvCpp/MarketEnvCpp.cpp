@@ -1,61 +1,83 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <iostream>
 #include <tuple>
 #include <vector>
 #include <numeric>
 #include <algorithm>
 #include <random>
 #include <cmath>
-#include <rapidcsv.h>
+#include "rapidcsv.h"
 #include <DataFrame/DataFrame.h>
 #include <DataFrame/Utils/DateTime.h>
+#include <iomanip>
 
 namespace py = pybind11;
+using namespace hmdf;
 
+
+struct info_dict{
+    float portfolio_value;
+    float current_price;
+    float open;
+    float high;
+    float low;
+    float close;
+    DateTime date;
+    int action_taken;
+    float cash;
+    bool holding;
+};
+
+struct trade_day{
+    std::string date;
+    std::vector<float> features;
+};
 
 class MarketEnv {
     
 private:
-
+    /*
     float initial_capital;
     int max_trades_per_month; 
     float trading_fee;
     float hold_penalty;
     int max_hold_steps;
-    int segment_size;
     int num_projected_days;
-
-    int lookback = 30;
+    */
+    std::vector<std::string> column_names;
+    int segment_size;
     std::string full_data;
-        
-
-    std::vector<float> sharpe_window;
-    std::vector<float> volatility_window;
+    StdDataFrame<unsigned long> full_df;
+    /*
+    int lookback = 30;
     int risk_feature_dim = 3;
     //Get feature dimensions (excluding Close and Ticker)
     //self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
     //self.astro_feature_columns = [col for col in self.full_data.columns if col not in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open', "Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
     //self.tech_feature_columns = [col for col in self.full_data.columns if col in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open']]
     //self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
-        
+    
+    std::vector<float> sharpe_window;
+    std::vector<float> volatility_window;
     std::vector<float> price_window;
-    std::vector<float>feature_window;
+    std::vector<float> feature_window;
     std::vector<float> tech_window;
-    std::vector<float>returns_window;
-    //std::vector<__DATE__>date_window;
-        
+    std::vector<float> returns_window;
+    std::vector<DateTime> date_window;
+    
     int window_position = 0;
     int returns_position = 0;
     bool windows_filled = false;
-        
+    */
     std::random_device rd;
-    
+    /*
     float sharpe = 0.0;
     float volatility = 0.0;
     float rel_strength = 0.0;
     float reward_val = 0.0;
-        
-    //std::vector<float, float, float, float, float, float, std::string, int, float, bool> info;
+    */
+    //std::vector<> info;
 
     float clip(float value, float lower, float upper) {
         return std::max(lower, std::min(value, upper));
@@ -130,9 +152,14 @@ private:
         int random_number = distrib(gen);
         return random_number;
     }
+    /*
+    void std::vector<float> create_segments(int& segment_size){
+        
+    }
+    */
 
 public:
-    
+
     std::tuple<float, float, float> calculate_pnl_metrics(
         const float current_price, 
         const float entry_price, 
@@ -176,11 +203,53 @@ public:
 
         return std::make_tuple(sharpe, relative_strength);
     }
+
+    void create_df(std::string& df_name){
+
+        rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, 0));
+        column_names = doc.GetColumnNames();
+        size_t n_rows = doc.GetRowCount();
+
+        std::vector<unsigned long> idx;
+        idx.resize(n_rows);
+        std::iota(idx.begin(), idx.end(), 0);
+
+        full_df.load_index(std::move(idx));
+
+        for (const auto& col_name : column_names) {
+            std::vector<float> col_data = doc.GetColumn<float>(col_name);
+            
+            full_df.load_column(col_name.c_str(), std::move(col_data));
+        }
+
+        std::cout << "Rows, Columns: " << full_df.shape()<< std::endl;
+        // Print header row (column names)
+        std::cout << std::setw(10) << "Index";
+        for (const auto& col_name : column_names) {
+            std::cout << std::setw(15) << col_name;
+        }
+        std::cout << "\n";
+
+        // Iterate over rows and print each row's data
+        for (size_t i = 0; i < full_df.shape().first; i++) {
+            std::cout << std::setw(15) << i;
+            for (const auto& col_name : column_names) {
+                // Retrieve the column vector; note that this retrieves by name each time.
+                // If performance becomes an issue, consider caching these vectors.
+                std::vector<float> col_data = full_df.get_column<float>(col_name.c_str());
+                std::cout << std::setw(15) << col_data[i];
+            }
+            std::cout << "\n";
+        }
+    }
+    
+
 };
 
 PYBIND11_MODULE(MarketEnvCpp, m) {
     py::class_<MarketEnv>(m, "MarketEnv")
         .def(py::init<>())
         .def("calculate_pnl_metrics", &MarketEnv::calculate_pnl_metrics, "Calculate PnL metrics")
-        .def("calculate_risk_metrics", &MarketEnv::calculate_risk_metrics, "Calculate risk metrics");
+        .def("calculate_risk_metrics", &MarketEnv::calculate_risk_metrics, "Calculate risk metrics")
+        .def("create_df", &MarketEnv::create_df, "Give file path");
 }
