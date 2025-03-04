@@ -237,6 +237,7 @@ class AttentionDQN(nn.Module):
                     nn.init.zeros_(module.bias)
     
     def forward(self, x):
+        
         batch, seq_len, num_features = x.shape
         if (seq_len, num_features) != self.state_dim:
             raise ValueError(f"Expected state dimensions {self.state_dim} but got ({seq_len}, {num_features})")

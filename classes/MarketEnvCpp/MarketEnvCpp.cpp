@@ -15,6 +15,7 @@
 namespace py = pybind11;
 using namespace hmdf;
 
+
 struct info_dict{
     float portfolio_value;
     float current_price;
@@ -26,6 +27,11 @@ struct info_dict{
     int action_taken;
     float cash;
     bool holding;
+};
+
+struct trade_day{
+    std::string date;
+    std::vector<float> features;
 };
 
 class MarketEnv {
@@ -147,15 +153,8 @@ private:
         return random_number;
     }
     /*
-    void std::vector<std::vector<DataFrame>> create_segments(int& segment_size){
-        std::vector<std::vector<DataFrame>> segments;
-        column_names;
-        StdDataFrame<unsigned long> temp_df;
-
-        for (size_t i = 0; i < segment_size; i++) {
-            std::vector<float> col_data = doc.GetColumn<float>(col_name);
-            temp_df.load_column(col_name.c_str(), std::move(col_data));
-        }
+    void std::vector<float> create_segments(int& segment_size){
+        
     }
     */
 
@@ -207,7 +206,7 @@ public:
 
     void create_df(std::string& df_name){
 
-        rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, -1));
+        rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, 0));
         column_names = doc.GetColumnNames();
         size_t n_rows = doc.GetRowCount();
 
@@ -219,35 +218,17 @@ public:
 
         for (const auto& col_name : column_names) {
             std::vector<float> col_data = doc.GetColumn<float>(col_name);
+            
             full_df.load_column(col_name.c_str(), std::move(col_data));
         }
-        
-        //std::cout << "DataFrame shape: (" << full_df.shape().first << ", " << full_df.shape().second << ")" << std::endl;
-        /*
-        std::vector<float> macd_col = full_df.get_column<float>("MACD");
-        for(size_t i = 0; i < column_names.size(); i++){
-            std::cout << "Index: " << i << " value: "<< macd_col[i] << std::endl;
-        }
-        for (const auto& col_name : column_names) {
-            std::vector<float> values = full_df.get_column<float>(col_name.c_str());
-            for (size_t j = 0; j < values.size(); j++) {
-                std::cout  << " Value: " << values[j] << std::endl;
-            }
-        }
-        */
-        
+
+        std::cout << "Rows, Columns: " << full_df.shape()<< std::endl;
         // Print header row (column names)
         std::cout << std::setw(10) << "Index";
         for (const auto& col_name : column_names) {
             std::cout << std::setw(15) << col_name;
         }
         std::cout << "\n";
-
-        // Print a separator line (optional)
-        //std::cout << std::string(10 + 15 * column_names.size(), '-') << "\n";
-
-        // Get number of rows from the DataFrame shape
-        //size_t n_rows = full_df.shape().first;
 
         // Iterate over rows and print each row's data
         for (size_t i = 0; i < full_df.shape().first; i++) {
