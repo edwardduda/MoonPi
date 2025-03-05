@@ -32,3 +32,4 @@ classes/MarketEnvCpp/MarketEnvCpp.cpython-311-darwin.so
 classes/sample_dataset.csv
 classes/weathertestset.csv
 classes/test.py
+classes/MarketEnvCpp/include/rapidcsv.h
