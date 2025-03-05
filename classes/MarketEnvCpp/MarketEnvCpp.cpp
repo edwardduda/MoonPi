@@ -204,46 +204,77 @@ public:
         return std::make_tuple(sharpe, relative_strength);
     }
 
-    void create_df(std::string& df_name){
+void create_df(std::string& df_name) {
+    // Load the CSV document with rapidcsv.
+    rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, 0));
+    column_names = doc.GetColumnNames();
+    size_t n_rows = doc.GetRowCount();
 
-        rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, 0));
-        column_names = doc.GetColumnNames();
-        size_t n_rows = doc.GetRowCount();
+    // First, load the index.
+    std::vector<unsigned long> idx(n_rows);
+    std::iota(idx.begin(), idx.end(), 0);
+    full_df.load_index(std::move(idx));
 
-        std::vector<unsigned long> idx;
-        idx.resize(n_rows);
-        std::iota(idx.begin(), idx.end(), 0);
+    // Load the date column separately.
+    // (Assuming your CSV has a "date" column.)
+    std::vector<std::string> date_data = doc.GetColumn<std::string>("Date");
 
-        full_df.load_index(std::move(idx));
+    // Load the remaining columns (assumed to be floats).
+    // We'll skip the "date" column since it's not float.
+    for (const auto& col_name : column_names) {
+        if (col_name == "Date") continue;
+        std::vector<float> col_data = doc.GetColumn<float>(col_name);
+        full_df.load_column(col_name.c_str(), std::move(col_data));
+    }
 
+    std::cout << "Rows, Columns: " << full_df.shape() << std::endl;
+
+    // Print header row (column names excluding date, if desired)
+    std::cout << std::setw(10) << "Index" << std::setw(15) << "Date";
+    for (const auto& col_name : column_names) {
+        if (col_name == "Date") continue;
+        std::cout << std::setw(15) << col_name;
+    }
+    std::cout << "\n";
+
+    // Iterate over rows and print each row's data.
+    for (size_t i = 0; i < full_df.shape().first; i++) {
+        std::cout << std::setw(15) << i << std::setw(15) << date_data[i];
         for (const auto& col_name : column_names) {
-            std::vector<float> col_data = doc.GetColumn<float>(col_name);
-            
-            full_df.load_column(col_name.c_str(), std::move(col_data));
-        }
-
-        std::cout << "Rows, Columns: " << full_df.shape()<< std::endl;
-        // Print header row (column names)
-        std::cout << std::setw(10) << "Index";
-        for (const auto& col_name : column_names) {
-            std::cout << std::setw(15) << col_name;
+            if (col_name == "Date") continue;
+            // Retrieve the column vector. (For performance, you might cache these.)
+            std::vector<float> col_data = full_df.get_column<float>(col_name.c_str());
+            std::cout << std::setw(15) << col_data[i];
         }
         std::cout << "\n";
-
-        // Iterate over rows and print each row's data
-        for (size_t i = 0; i < full_df.shape().first; i++) {
-            std::cout << std::setw(15) << i;
-            for (const auto& col_name : column_names) {
-                // Retrieve the column vector; note that this retrieves by name each time.
-                // If performance becomes an issue, consider caching these vectors.
-                std::vector<float> col_data = full_df.get_column<float>(col_name.c_str());
-                std::cout << std::setw(15) << col_data[i];
-            }
-            std::cout << "\n";
-        }
     }
-    
 
+    // Now, create a vector of trade_day structures.
+    std::vector<trade_day> trade_days;
+    // For each row, construct a trade_day by combining the date and the feature values.
+    for (size_t i = 0; i < n_rows; i++) {
+        trade_day td;
+        td.date = date_data[i];
+        // For each column (except "date"), get the value for the i-th row.
+        for (const auto& col_name : column_names) {
+            if (col_name == "Date") continue;
+            // Again, if performance is an issue, consider caching the column vectors.
+            std::vector<float> col_data = full_df.get_column<float>(col_name.c_str());
+            td.features.push_back(col_data[i]);
+        }
+        trade_days.push_back(std::move(td));
+    }
+
+    // (Optional) Print out a trade_day for verification.
+    if (!trade_days.empty()) {
+        std::cout << "\nFirst trade_day:\nDate: " << trade_days[0].date << "\nFeatures: ";
+        for (float f : trade_days[0].features)
+            std::cout << f << " ";
+        std::cout << "\n";
+    }
+
+    // trade_days is now ready to be used or exposed to Python.
+}
 };
 
 PYBIND11_MODULE(MarketEnvCpp, m) {
