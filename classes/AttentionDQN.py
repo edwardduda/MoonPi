@@ -255,14 +255,14 @@ class AttentionDQN(nn.Module):
         zero_mask = (x_proc.abs().sum(dim=-1, keepdim=True) == 0)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
-        # Apply Astro block.
-        x_proc, feature_weights = self.astro_block(x_proc)
-        x_proc = x_proc.masked_fill(zero_mask, 0.0)
-        
         # Apply Technical block.
         x_proc, technical_weights = self.tech_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
+        # Apply Astro block.
+        x_proc, feature_weights = self.astro_block(x_proc)
+        x_proc = x_proc.masked_fill(zero_mask, 0.0)
+                
         # Apply Temporal block.
         x_proc, temporal_weights = self.temporal_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)

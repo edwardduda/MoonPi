@@ -205,12 +205,12 @@ public:
     }
 
 void create_df(std::string& df_name) {
-    // Load the CSV document with rapidcsv.
+
     rapidcsv::Document doc(df_name, rapidcsv::LabelParams(0, 0));
     column_names = doc.GetColumnNames();
     size_t n_rows = doc.GetRowCount();
 
-    // First, load the index.
+
     std::vector<unsigned long> idx(n_rows);
     std::iota(idx.begin(), idx.end(), 0);
     full_df.load_index(std::move(idx));
@@ -219,8 +219,6 @@ void create_df(std::string& df_name) {
     // (Assuming your CSV has a "date" column.)
     std::vector<std::string> date_data = doc.GetColumn<std::string>("Date");
 
-    // Load the remaining columns (assumed to be floats).
-    // We'll skip the "date" column since it's not float.
     for (const auto& col_name : column_names) {
         if (col_name == "Date") continue;
         std::vector<float> col_data = doc.GetColumn<float>(col_name);
@@ -229,7 +227,6 @@ void create_df(std::string& df_name) {
 
     std::cout << "Rows, Columns: " << full_df.shape() << std::endl;
 
-    // Print header row (column names excluding date, if desired)
     std::cout << std::setw(10) << "Index" << std::setw(15) << "Date";
     for (const auto& col_name : column_names) {
         if (col_name == "Date") continue;
@@ -249,9 +246,8 @@ void create_df(std::string& df_name) {
         std::cout << "\n";
     }
 
-    // Now, create a vector of trade_day structures.
     std::vector<trade_day> trade_days;
-    // For each row, construct a trade_day by combining the date and the feature values.
+
     for (size_t i = 0; i < n_rows; i++) {
         trade_day td;
         td.date = date_data[i];
