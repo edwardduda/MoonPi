@@ -1,5 +1,4 @@
 import torch
-import MarketEnv
 
 class Config:
     def __init__(self):
@@ -42,7 +41,7 @@ class Config:
         }
         
         self.MARKET_ENV_PARMS = {
-        'NUM_PROJECTED_DAYS' : 15,
+        'NUM_PROJECTED_DAYS' : 25,
         'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
         'MAX_HOLD_STEPS' : 28,

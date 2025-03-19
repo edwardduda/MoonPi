@@ -30,26 +30,26 @@ struct info_dict{
 };
 
 struct trade_day{
-    std::string date;
+    DateTime date;
     std::vector<float> features;
+    int ticker;
 };
 
 class MarketEnv {
     
 private:
-    /*
     float initial_capital;
     int max_trades_per_month; 
     float trading_fee;
     float hold_penalty;
     int max_hold_steps;
     int num_projected_days;
-    */
+
     std::vector<std::string> column_names;
     int segment_size;
     std::string full_data;
     StdDataFrame<unsigned long> full_df;
-    /*
+
     int lookback = 30;
     int risk_feature_dim = 3;
     //Get feature dimensions (excluding Close and Ticker)
@@ -69,14 +69,14 @@ private:
     int window_position = 0;
     int returns_position = 0;
     bool windows_filled = false;
-    */
+    
     std::random_device rd;
-    /*
+
     float sharpe = 0.0;
     float volatility = 0.0;
     float rel_strength = 0.0;
     float reward_val = 0.0;
-    */
+
     //std::vector<> info;
 
     float clip(float value, float lower, float upper) {
@@ -215,10 +215,14 @@ void create_df(std::string& df_name) {
     std::iota(idx.begin(), idx.end(), 0);
     full_df.load_index(std::move(idx));
 
-    // Load the date column separately.
-    // (Assuming your CSV has a "date" column.)
-    std::vector<std::string> date_data = doc.GetColumn<std::string>("Date");
+    std::vector<std::string> date_str_data = doc.GetColumn<std::string>("Date");
 
+    std::vector<DateTime> date_data;
+    for (const auto& date_str : date_str_data) {
+
+        date_data.push_back(DateTime(date_str.c_str(), DT_DATE_STYLE::AME_STYLE));
+    }
+    
     for (const auto& col_name : column_names) {
         if (col_name == "Date") continue;
         std::vector<float> col_data = doc.GetColumn<float>(col_name);
@@ -261,7 +265,6 @@ void create_df(std::string& df_name) {
         trade_days.push_back(std::move(td));
     }
 
-    // (Optional) Print out a trade_day for verification.
     if (!trade_days.empty()) {
         std::cout << "\nFirst trade_day:\nDate: " << trade_days[0].date << "\nFeatures: ";
         for (float f : trade_days[0].features)
@@ -269,7 +272,6 @@ void create_df(std::string& df_name) {
         std::cout << "\n";
     }
 
-    // trade_days is now ready to be used or exposed to Python.
 }
 };
 

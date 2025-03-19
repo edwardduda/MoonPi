@@ -4,6 +4,7 @@ from numba import jit
 from typing import Tuple
 import cProfile
 import pstats
+from MarketEnvCpp import MarketEnv
 
 @jit(nopython=True, cache=True)
 def normalize_reward(reward):
@@ -74,7 +75,6 @@ class MarketEnv:
         self.trading_fee = trading_fee
         self.hold_penalty = hold_penalty
         self.max_hold_steps = max_hold_steps
-        
         self.num_projected_days = num_projected_days
         
         # Constants for window sizes
