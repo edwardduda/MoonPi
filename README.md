@@ -9,16 +9,23 @@ While most algorithmic trading relies on recurrent neural networks (RNNs) to pre
 
 Instead of predicting continuous price movements, I used deep neural networks to forecast discrete actions, such as 'buy' or 'sell.' This method leverages the proven strength of neural networks in handling discrete domains, like classification and natural language processing, where inputs and outputs are structured and finite. By treating trading decisions as distinct choices within a combinatorial framework, this approach enhances predictive precision and aligns well with the capabilities of neural networks.
 
-I gathered price action data using the Yahoo Finance API, dating back to the early 1960s. I organized this data by sector and plotted the distribution of the time frames to minimize skew and create a more balanced dataset. I don't want a bias towards the present. I also standardized all the data to bypass inflation. $1 in 1964 is worth more than $1 in 2025. TensorBoard was used to monitor model performance throughout training. Seaborn was used to plot attention heatmaps to determine feature importance.
-
-## Custom Architecture & Environment
-
 * Implemented a Deep Q-Learning Network to approximate a Q-function for decision-making
-* Defined a state as a segment of time, ~100 days, creating an enclosed environment for the model to train in
+* Defined a state as a segment of time n # of days, creating an enclosed environment for the model to train in
 * Randomly shuffled segments to reduce temporal dependencies
-* Extended the utility of my full data set from ~60 years worth of data to ~7143 years worth of data
+* Extended the utility of my full data set from ~60 years worth of data to ~2658 years worth of data
 * Tokenized all positions in the segment to represent a state
 * Designed specialized attention blocks analyzing both features and temporal positioning
+
+## Data Gathering and Prep
+
+I gathered price action data for ~70 stocks using the Yahoo Finance API, dating back to the early 1960s. I organized this data by sector and plotted the distribution of the time frames to minimize skew and create a more balanced dataset. This approach helps prevent bias toward present-day data. I also standardized all the data to bypass inflation effects, since $1 in 1964 is worth more than $1 in 2025. I used the price action data to calculate technical indicators like the MACD using different time steps, sharpe ratio of the portfolio, volatility, and relative strength. The sequential data was divided into segments as defined in the Config class. Each segment represents a "snapshot" of time that serves as the environment for the model during an episode of training. The segments are then shuffled before being used for training. This approach was inspired by k-fold cross-validation - while not typically used in reinforcement learning, shuffling and overlap in segments allows me to effectively "reuse" and shuffle data, extending the utility of my dataset. This is possible because even if two segments are different by one step, they are still different states since states are discrete not continuous. A replay buffer is initialized with an epsilon value of 1 to provide as much diversity as possible for calculating the loss function. TensorBoard was used to monitor model performance throughout training, while Seaborn was used to plot attention heatmaps to determine feature importance.
+
+## MarketEnv
+MarketEnv is the Python class that implements my custom trading environment. Unable to find existing RL libraries that suited my specific needs, I built this environment from scratch. The class handles several critical functions: defining the reward structure, creating and managing time segments, calculating real-time technical metrics, and constructing state representations at each step. Technical indicators like MACD, Sharpe ratio, volatility, and relative strength are dynamically recalculated after every action. To optimize performance with these computationally intensive calculations, I utilize Numba's JIT compiler, which translates Python code directly into optimized machine code. I'm currently implementing a C++ version of this environment to further reduce overhead, particularly for operations that would otherwise rely on the Pandas library.
+
+## AttentionDQN Architecture
+AttentionDQN is the Python class that implements my custom attention-based architecture. The input vector is processed through three specialized attention blocks, each focused on different aspects: feature relationships, technical indicators, and temporal patterns. Each attention block utilizes multiple attention heads followed by a feed-forward network. I employed ReLU activations and Dropout for regularization throughout the architecture. While different activation functions and regularization techniques could potentially improve performance, the stable loss and reward metrics during training didn't necessitate further experimentation in this area.
+A key feature of the architecture is how I handle trading state validation. The network uses a "holding" boolean flag from the environment as a gating mechanism to determine whether potential actions are valid. Initially, I attempted to enforce trading constraints solely through the reward function, but discovered this approach wasn't effective. By incorporating this validation directly into the architecture (rather than using simple conditionals), I encouraged the agent to learn proper boundaries and develop more sophisticated trading strategies.
 
 ## Results and Outcomes
 
