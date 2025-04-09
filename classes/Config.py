@@ -11,8 +11,8 @@ class Config:
         self.TRAINING_PARMS = {
             'EPISODES' : 8000,
             'BATCH_SIZE' : 24,
-            'BUFFER_SIZE' : 200000,
-            'MIN_REPLAY_SIZE' : 180000,
+            'BUFFER_SIZE' : 150000,
+            'MIN_REPLAY_SIZE' : 120000,
             'MIN_LEARNING_RATE' : 1e-5,
             'LEARNING_RATE' : 1e-4,
             'GAMMA' : 0.9997,
@@ -22,15 +22,15 @@ class Config:
             'EPSILON_START': 1.0,
             'EPSILON_END': 0.25,
             'EPSILON_RESET' : 0.4,
-            'EPSILON_DECAY': 0.99995,
+            'EPSILON_DECAY': 0.999995,
             'WEIGHT_DECAY' : 1e-5,
             'STEPS_PER_EPISODE' : self.DATA_CONFIG.get('SEGMENT_SIZE'),
             'MAX_GRADIENT_CLIP' : 1.0
         }
         
         self.ARCHITECTURE_PARMS = {
-            'ASTRO_DIM' : 24,
-            'TECH_DIM' : 16,
+            'ASTRO_DIM' : 16,
+            'TECH_DIM' : 8,
             'NUM_ASTRO_LAYERS' : 1,
             'NUM_TEMPORAL_LAYERS' : 1,
             'NUM_TECH_LAYERS' : 1,

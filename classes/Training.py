@@ -259,7 +259,7 @@ class Training:
             print(f"\nLogged episode {self.episodes_done} (replay buffer ready)")
         
         self.episodes_done += 1
-        if (self.episodes_done % 200 == 0 and self.env.max_trades_per_month > 2):
+        if (self.episodes_done % 200 == 0 and self.env.max_trades_per_month > 3):
             self.env.max_trades_per_month -= 1
         if self.episodes_done % 50 == 0:
             self.logger.flush_to_tensorboard()
