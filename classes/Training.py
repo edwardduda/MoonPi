@@ -8,12 +8,13 @@ from collections import deque, namedtuple
 import random
 from classes.EpsilonSchedule import EpsilonSchedule
 from classes.DQNLogger import DQNLogger
-from classes.LearningRateScheduler import EpsilonMatchingLRScheduler
+from classes.LearningRateScheduler import CosineAnnealingLRScheduler
 from classes.EpisodeLogger import EpisodeLogger
 import gc
 import cProfile
 import pstats
 import logging
+import math
 
 class Training:
     def __init__(self, env, main_model, target_model, config):
@@ -64,15 +65,19 @@ class Training:
         # Initialize training components
         self.replay_buffer = deque(maxlen=self.buffer_size)
         self.optimizer = optim.AdamW(self.main_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-        self.scheduler = EpsilonMatchingLRScheduler(
+        self.scheduler = CosineAnnealingLRScheduler(
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
             min_lr=self.min_lr,
-            warmup_steps=min(self.min_replay_size // 10, 2000),
-            epsilon_decay=self.epsilon_decay,
-            epsilon_min=self.epsilon_end,
+            period= self.steps_per_episode * 50
         )
-        self.epsilon_schedule = EpsilonSchedule(self.epsilon_start, self.epsilon_end, self.epsilon_decay, self.epsilon_reset)
+        self.epsilon_schedule = EpsilonSchedule(
+            warmup_steps=min(self.min_replay_size // 10, 2000),
+            start=self.epsilon_start,
+            end=self.epsilon_end,
+            reset=self.epsilon_reset,
+            period=self.steps_per_episode * 50,
+            )
 
         self.total_steps = 0
         self.episodes_done = 0
@@ -85,10 +90,11 @@ class Training:
         self.transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
         
     def get_current_epsilon(self):
+        # During initial replay-buffer fill we stay at ε_start.
         if len(self.replay_buffer) < self.min_replay_size:
             return self.epsilon_start
-        else:
-            return self.epsilon_schedule.epsilon
+        # Otherwise just “peek” at the last value the schedule computed.
+        return self.epsilon_schedule.current
         
     def training_step(self):
         #profiler = cProfile.Profile()
@@ -120,6 +126,7 @@ class Training:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), max_norm=1.05)
         self.optimizer.step()
+        self.scheduler.step() 
         
         # Update target network
         with torch.no_grad():
@@ -142,7 +149,7 @@ class Training:
         # Original logging
         current_lr = self.scheduler.get_last_lr()[0]
         self.logger.log_training_step(
-            epsilon=self.epsilon_schedule.epsilon,
+            epsilon=self.epsilon_schedule.current,
             lr=current_lr,
             reward=torch.mean(reward_batch).item(),
             loss=loss.item(),
@@ -160,7 +167,7 @@ class Training:
         
     def take_action(self, state, state_tensor):
         
-        if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.epsilon:
+        if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.current:
             action = self.env.action_space.sample()
         else:
             with torch.no_grad():
@@ -190,7 +197,7 @@ class Training:
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             
             # Get action and Q-values
-            if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.epsilon:
+            if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.current:
                 action = self.env.action_space.sample()
                 q_values = [0, 0, 0]  # Default Q-values for random actions
             else:
@@ -261,7 +268,7 @@ class Training:
         self.episodes_done += 1
         if (self.episodes_done % 200 == 0 and self.env.max_trades_per_month > 3):
             self.env.max_trades_per_month -= 1
-        if self.episodes_done % 50 == 0:
+        if self.episodes_done % 10 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
     

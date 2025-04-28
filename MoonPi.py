@@ -3,8 +3,6 @@ import pandas as pd
 from scipy.stats import norm
 from collections import namedtuple
 import copy
-import signal
-import sys
 from classes.MarketEnv import MarketEnv
 from classes.AttentionDQN import AttentionDQN
 from classes.Config import Config

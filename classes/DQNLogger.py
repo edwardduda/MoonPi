@@ -197,6 +197,8 @@ class DQNLogger:
                     'training/loss': np.mean(self.loss_buffer),
                     'training/reward_std': np.std(self.reward_buffer) if len(self.reward_buffer) > 1 else 0,
                     'training/loss_std': np.std(self.loss_buffer) if len(self.loss_buffer) > 1 else 0,
+                    'training/epsilon': epsilon,
+                    'training/lr' : lr
                 }
                 if self.q_value_buffer['main']:
                     metrics['q_values/main_mean'] = np.mean(self.q_value_buffer['main'])
@@ -365,35 +367,7 @@ class DQNLogger:
                                 self.step)
             plt.close(fig)
             buf.close()
-        '''
-        # Flush feature importance logs
-        for entry in self.offline_feature_importance:
-            step = entry['step']
-            layer_idx = entry['layer']
-            feature_importance = entry['feature_importance']
-            feature_names = entry['feature_names']
-            n_features = min(30, len(feature_names))
-            sorted_idx = np.argsort(feature_importance)[-n_features:]
-            pos = np.arange(len(sorted_idx))
-            fig = plt.figure(figsize=(24, 36))
-            plt.barh(pos, feature_importance[sorted_idx], height=0.8)
-            plt.yticks(pos, np.array(feature_names)[sorted_idx], fontsize=18)
-            plt.xlabel('Average Attention Weight', fontsize=20)
-            plt.title(f'Most Important Features (Layer {layer_idx + 1})', fontsize=18, pad=20)
-            plt.grid(True, axis='x', alpha=0.3)
-            plt.tight_layout()
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=140, bbox_inches='tight')
-            buf.seek(0)
-            image = Image.open(buf)
-            image = image.resize((1100, 1100))
-            self.writer.add_image(f'feature_importance/layer_{layer_idx + 1}', 
-                                np.array(image).transpose(2, 0, 1), 
-                                step)
-            plt.close(fig)
-            buf.close()
-        '''
-        # Flush feature importance heatmap logs
+
         for entry in self.offline_feature_importance_heatmap:
             step = entry['step']
             feature_weights = entry['feature_weights']

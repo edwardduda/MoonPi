@@ -4,7 +4,6 @@ from numba import jit
 from typing import Tuple
 import cProfile
 import pstats
-from MarketEnvCpp import MarketEnv
 
 @jit(nopython=True, cache=True)
 def normalize_reward(reward):
@@ -439,7 +438,7 @@ class MarketEnv:
 
         # Normalize and clip reward
         self.reward_val = normalize_reward(self.reward_val)
-        self.reward_val = np.clip(0.0 if np.isnan(self.reward_val) else self.reward_val, -10.0, 10.0)
+        self.reward_val = np.clip(0.0 if np.isnan(self.reward_val) else self.reward_val, -40.0, 40.0)
         
         self.current_step += 1
         next_state = self.get_state()

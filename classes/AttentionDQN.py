@@ -211,7 +211,10 @@ class AttentionDQN(nn.Module):
         self.final_norm = nn.LayerNorm(self.embed_dim)
         
         self.q_values = nn.Sequential(
-            nn.Linear(self.embed_dim, self.embed_dim * 4),
+            nn.Linear(self.embed_dim, self.embed_dim * 8),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim * 8, self.embed_dim * 4),
             nn.ReLU(),
             nn.Dropout(self.dropout),
             nn.Linear(self.embed_dim * 4, self.embed_dim * 2),
@@ -262,7 +265,7 @@ class AttentionDQN(nn.Module):
         # Apply Astro block.
         x_proc, feature_weights = self.astro_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
-                
+         
         # Apply Temporal block.
         x_proc, temporal_weights = self.temporal_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)

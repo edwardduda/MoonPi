@@ -3,7 +3,7 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-            'SEGMENT_SIZE' : int(100), #time window size      252 = 1 fiscal year
+            'SEGMENT_SIZE' : int(40), #time window size      252 = 1 fiscal year
             'DATASET_CSV' : "full_df.csv",
             'NUM_FEATURES' : None
         }
@@ -11,21 +11,22 @@ class Config:
         self.TRAINING_PARMS = {
             'EPISODES' : 8000,
             'BATCH_SIZE' : 24,
-            'BUFFER_SIZE' : 200000,
-            'MIN_REPLAY_SIZE' : 180000,
-            'MIN_LEARNING_RATE' : 1e-5,
-            'LEARNING_RATE' : 1e-4,
+            'BUFFER_SIZE' : 50000,
+            'MIN_REPLAY_SIZE' : 45000,
+            'MIN_LEARNING_RATE' : 0.00001,
+            'LEARNING_RATE' : 0.0001,
             'GAMMA' : 0.9997,
             'TAU' : 0.06,
-            'DROPOUT_RATE' : 0.1,
+            'DROPOUT_RATE' : 0.12,
             'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
             'EPSILON_START': 1.0,
             'EPSILON_END': 0.25,
-            'EPSILON_RESET' : 0.4,
+            'EPSILON_RESET' : 0.35,
             'EPSILON_DECAY': 0.99995,
             'WEIGHT_DECAY' : 1e-5,
             'STEPS_PER_EPISODE' : self.DATA_CONFIG.get('SEGMENT_SIZE'),
-            'MAX_GRADIENT_CLIP' : 1.0
+            'MAX_GRADIENT_CLIP' : 1.4,
+            'EPSILON_PERIOD' : 500
         }
         
         self.ARCHITECTURE_PARMS = {
@@ -37,7 +38,7 @@ class Config:
             'EMBED_DIM' : 384,
             'NUM_ASTRO_HEADS' : 12,
             'NUM_TEMPORAL_HEADS' : 6,
-            'NUM_TECHNICAL_HEADS' : 4
+            'NUM_TECHNICAL_HEADS' : 8
         }
         
         self.MARKET_ENV_PARMS = {
