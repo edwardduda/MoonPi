@@ -12,6 +12,17 @@ import logging
 import scipy
 from numba import jit  # imported in case you want to jit some helper functions later
 
+jit(nopython=True, cache=True)
+def running_mean_std(vals):
+    acc, acc2 = 0.0, 0.0
+    n = len(vals)
+    for v in vals:
+        acc  += v
+        acc2 += v * v
+    mean = acc / n
+    std  = (acc2 / n - mean ** 2) ** 0.5
+    return mean, std
+
 class DQNLogger:
     def __init__(self, log_dir, scalar_freq, attention_freq, histogram_freq, buffer_size):
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -155,12 +166,13 @@ class DQNLogger:
             if not feature_weights or not feature_names:
                 return
             self.feature_names = feature_names  # save for later use in attention plots
+            self.len_feature_names = len(feature_names)
             for layer_idx, layer_weights in enumerate(feature_weights):
                 with torch.no_grad():
                     avg_weights = layer_weights.detach().mean(dim=0).cpu().numpy()
                     feature_dim = avg_weights.shape[-1]
-                    if feature_dim != len(feature_names) - 11:
-                        logging.warning(f"Feature dimension mismatch: got {feature_dim} vs expected {len(feature_names)}")
+                    if feature_dim != self.len_feature_names - 11:
+                        logging.warning(f"Feature dimension mismatch: got {feature_dim} vs expected {self.len_feature_names}")
                         continue
                     feature_importance = avg_weights.mean(axis=0)
                     self.offline_feature_importance.append({
@@ -192,11 +204,12 @@ class DQNLogger:
                     self.q_value_buffer['target'].append(target_q_values.mean().item())
             
             if self.step % self.scalar_freq == 0 and self.reward_buffer and self.loss_buffer:
+                r_mean, r_std = running_mean_std(np.array(self.reward_buffer, dtype=np.float32))
                 metrics = {
                     'training/reward': np.mean(self.reward_buffer),
                     'training/loss': np.mean(self.loss_buffer),
-                    'training/reward_std': np.std(self.reward_buffer) if len(self.reward_buffer) > 1 else 0,
-                    'training/loss_std': np.std(self.loss_buffer) if len(self.loss_buffer) > 1 else 0,
+                    'training/reward_std': r_mean if len(self.reward_buffer) > 1 else 0,
+                    'training/loss_std': r_std if len(self.loss_buffer) > 1 else 0,
                     'training/epsilon': epsilon,
                     'training/lr' : lr
                 }

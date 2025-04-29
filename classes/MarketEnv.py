@@ -31,7 +31,6 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
     """Calculate relative strength indicator"""
     if current_idx < window:
         return 0.0
-        
     current_price = prices[current_idx]
     window_prices = prices[max(0, current_idx-window):current_idx]
     
@@ -39,7 +38,6 @@ def calculate_relative_strength(prices: np.ndarray, current_idx: int, window: in
         return 0.0
         
     avg_price = np.mean(window_prices)
-    
     return (current_price - avg_price) / avg_price
 
 @jit(nopython=True, cache=True)
@@ -90,12 +88,15 @@ class MarketEnv:
         self.feature_columns = [col for col in self.full_data.columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         self.astro_feature_columns = [col for col in self.full_data.columns if col not in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open', "Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
         self.tech_feature_columns = [col for col in self.full_data.columns if col in ['MACD', 'Signal', 'Hist', 'High', 'Low', 'Open']]
-        self.state_dim = len(self.feature_columns) + 2  + self.risk_feature_dim
+        self.num_feature_columns = len(self.feature_columns)
+        self.num_astro_features = len(self.astro_feature_columns)
+        self.num_tech_features = len(self.tech_feature_columns)
+        self.state_dim = self.num_feature_columns + 2  + self.risk_feature_dim
         
         # Initialize numpy arrays for windows
         self.price_window = np.zeros(self.segment_size)
-        self.feature_window = np.zeros((self.segment_size, len(self.feature_columns)))
-        self.tech_window = np.zeros((self.segment_size - self.num_projected_days, len(self.tech_feature_columns)))
+        self.feature_window = np.zeros((self.segment_size, self.num_feature_columns))
+        self.tech_window = np.zeros((self.segment_size - self.num_projected_days, self.num_tech_features))
         self.returns_window = np.zeros(self.RETURNS_WINDOW_SIZE)
         self.date_window = np.zeros(self.segment_size, dtype='datetime64[ns]')
         
@@ -108,7 +109,7 @@ class MarketEnv:
         self.segments = self.create_segments()
         self.shuffled_segments = []
         self._shuffle_segments()
-        
+        self.annual_return = np.sqrt(252)
         self.sharpe = 0.0
         self.volatility = 0.0
         self.rel_strength = 0.0
@@ -172,10 +173,11 @@ class MarketEnv:
         self.sharpe = 0.0
         self.volatility = 0.0
         self.rel_strength = 0.0
+        
         if len(self.returns_window) >= self.lookback:
             recent_returns = self.returns_window[-self.lookback:]
             self.sharpe = calculate_local_sharpe(recent_returns, self.lookback)
-            self.volatility = np.std(recent_returns) * np.sqrt(252)  # Annualized
+            self.volatility = np.std(recent_returns) * self.annual_return # Annualized
             
         # Calculate relative strength
         if self.window_position > 0 or self.windows_filled:
@@ -203,21 +205,22 @@ class MarketEnv:
             portfolio_state = np.array([float(self.holding), self.cash / self.initial_capital])
 
             # Astrology features (extended into the future)
-            astro_features = self.data[self.astro_feature_columns].iloc[:self.num_projected_days + self.window_position].to_numpy() if self.window_position > 0 else np.zeros((self.num_projected_days, len(self.astro_feature_columns)))
+            astro_features = self.data[self.astro_feature_columns].iloc[:self.num_projected_days + self.window_position].to_numpy() if self.window_position > 0 else np.zeros((self.num_projected_days, self.num_astro_features))
             
             # Technical features (up to current point)
-            tech_features = self.data[self.tech_feature_columns].iloc[:self.window_position].to_numpy() if self.window_position > 0 else np.zeros((1, len(self.tech_feature_columns)))
+            tech_features = self.data[self.tech_feature_columns].iloc[:self.window_position].to_numpy() if self.window_position > 0 else np.zeros((1, self.num_tech_features))
             
             #profiler.disable()
             #stats = pstats.Stats(profiler).sort_stats('cumtime')
             #stats.print_stats()
-            
+            astro_features_len = len(astro_features)
+            tech_features_len = len(tech_features)
             # Determine the length for all features
-            target_length = max(len(tech_features), len(astro_features), self.segment_size)
+            target_length = max(tech_features_len, astro_features_len, self.segment_size)
 
             # Pad or truncate features to match target_length
-            astro_features_padded = np.pad(astro_features, ((0, target_length - len(astro_features)), (0, 0)), 'constant')
-            tech_features_padded = np.pad(tech_features, ((0, target_length - len(tech_features)), (0, 0)), 'constant')
+            astro_features_padded = np.pad(astro_features, ((0, target_length - astro_features_len), (0, 0)), 'constant')
+            tech_features_padded = np.pad(tech_features, ((0, target_length - tech_features_len), (0, 0)), 'constant')
 
             # Combine all features
             combined_features = np.hstack([tech_features_padded, astro_features_padded])
@@ -248,7 +251,7 @@ class MarketEnv:
 
         # Get new segment
         self.data = self.shuffled_segments.pop()
-        
+        self.data_len = len(self.data)
         # Reset all window arrays
         self.price_window.fill(0)
         self.feature_window.fill(0)
@@ -286,7 +289,7 @@ class MarketEnv:
         #profiler = cProfile.Profile()
         #profiler.enable()
         # Check if episode is done
-        done = self.current_step >= len(self.data) - 1
+        done = self.current_step >= self.data_len - 1
         
         # Get both normalized and original prices
         norm_price = self.data.iloc[self.current_step]["Close"]  # Normalized price for state
@@ -334,7 +337,7 @@ class MarketEnv:
         # Calculate volatility from returns window
         non_zero_returns = self.returns_window[self.returns_window != 0]
         self.volatility = np.std(non_zero_returns) if non_zero_returns.size > 0 else 0.01
-        self.volatility = np.clip(self.volatility, 0.001, 0.5)
+        self.volatility = np.clip(self.volatility, 0.001, 0.8)
 
         # Check if new month has started
         current_month = current_date.month
@@ -438,7 +441,7 @@ class MarketEnv:
 
         # Normalize and clip reward
         self.reward_val = normalize_reward(self.reward_val)
-        self.reward_val = np.clip(0.0 if np.isnan(self.reward_val) else self.reward_val, -40.0, 40.0)
+        self.reward_val = np.clip(0.0 if np.isnan(self.reward_val) else self.reward_val, -100.0, 100.0)
         
         self.current_step += 1
         next_state = self.get_state()

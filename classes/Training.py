@@ -64,19 +64,20 @@ class Training:
         self.logger.feature_names = feature_names
         # Initialize training components
         self.replay_buffer = deque(maxlen=self.buffer_size)
+        self.len_replay_buffer = len(self.replay_buffer)
         self.optimizer = optim.AdamW(self.main_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
         self.scheduler = CosineAnnealingLRScheduler(
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
             min_lr=self.min_lr,
-            period= self.steps_per_episode * 50
+            period= self.steps_per_episode * 140
         )
         self.epsilon_schedule = EpsilonSchedule(
             warmup_steps=min(self.min_replay_size // 10, 2000),
             start=self.epsilon_start,
             end=self.epsilon_end,
             reset=self.epsilon_reset,
-            period=self.steps_per_episode * 50,
+            period=self.steps_per_episode * 140,
             )
 
         self.total_steps = 0
@@ -91,7 +92,7 @@ class Training:
         
     def get_current_epsilon(self):
         # During initial replay-buffer fill we stay at ε_start.
-        if len(self.replay_buffer) < self.min_replay_size:
+        if self.len_replay_buffer < self.min_replay_size:
             return self.epsilon_start
         # Otherwise just “peek” at the last value the schedule computed.
         return self.epsilon_schedule.current
@@ -162,12 +163,12 @@ class Training:
 
         self.total_steps += 1
         
-        if len(self.replay_buffer) >= self.min_replay_size:
+        if self.len_replay_buffer >= self.min_replay_size:
             self.epsilon_schedule.step()
         
     def take_action(self, state, state_tensor):
         
-        if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.current:
+        if self.len_replay_buffer < self.min_replay_size or random.random() < self.epsilon_schedule.current:
             action = self.env.action_space.sample()
         else:
             with torch.no_grad():
@@ -180,7 +181,7 @@ class Training:
         self.replay_buffer.append(self.transition(state, action, reward, next_state, done))
         self.replay_buffer_bar.update(1)
     
-        if len(self.replay_buffer) == self.min_replay_size:
+        if self.len_replay_buffer == self.min_replay_size:
             self.replay_buffer_bar.close()
         
         return reward, done, next_state  # Return done flag and next_state
@@ -197,7 +198,7 @@ class Training:
             state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             
             # Get action and Q-values
-            if len(self.replay_buffer) < self.min_replay_size or random.random() < self.epsilon_schedule.current:
+            if self.len_replay_buffer < self.min_replay_size or random.random() < self.epsilon_schedule.current:
                 action = self.env.action_space.sample()
                 q_values = [0, 0, 0]  # Default Q-values for random actions
             else:
@@ -210,7 +211,7 @@ class Training:
             next_state, reward, done, self.env.info = self.env.step(action)
              # Only log step data if replay buffer is filled
             
-            if len(self.replay_buffer) >= self.min_replay_size:
+            if self.len_replay_buffer >= self.min_replay_size:
                 self.info.update({
                         'portfolio_value': self.env.info['portfolio_value'],
                         'current_price': self.env.info['current_price'],
@@ -233,13 +234,13 @@ class Training:
             self.replay_buffer.append(self.transition(state, action, reward, next_state, done))
             
             # Update progress bar for replay buffer filling
-            if len(self.replay_buffer) <= self.min_replay_size:
+            if self.len_replay_buffer <= self.min_replay_size:
                 self.replay_buffer_bar.update(1)
-                if len(self.replay_buffer) == self.min_replay_size:
+                if self.len_replay_buffer == self.min_replay_size:
                     self.replay_buffer_bar.close()
                     print("\nReplay buffer filled, starting training...")
             
-            if len(self.replay_buffer) >= self.min_replay_size:
+            if self.len_replay_buffer >= self.min_replay_size:
                 try:
                     self.training_step()
                 except Exception as e:
@@ -255,20 +256,20 @@ class Training:
         self.logger.log_episode_pnl(initial_capital, final_portfolio_value)
         
         # Only save episode data if replay buffer is filled
-        if len(self.replay_buffer) >= self.min_replay_size:
+        if self.len_replay_buffer >= self.min_replay_size:
             metrics = {
                 'final_portfolio_value': final_portfolio_value,
                 'episode_reward': episode_reward,
                 'epsilon': self.get_current_epsilon(),
-                'replay_buffer_size': len(self.replay_buffer)
+                'replay_buffer_size': self.len_replay_buffer
             }
             self.episode_logger.save_training_session(self.episodes_done, metrics)
             print(f"\nLogged episode {self.episodes_done} (replay buffer ready)")
         
         self.episodes_done += 1
-        if (self.episodes_done % 200 == 0 and self.env.max_trades_per_month > 3):
+        if (self.episodes_done % 100 == 0 and self.env.max_trades_per_month > 3):
             self.env.max_trades_per_month -= 1
-        if self.episodes_done % 10 == 0:
+        if self.episodes_done % 2 == 0:
             self.logger.flush_to_tensorboard()
         return episode_reward
     

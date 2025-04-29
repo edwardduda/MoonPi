@@ -3,16 +3,16 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-            'SEGMENT_SIZE' : int(40), #time window size      252 = 1 fiscal year
+            'SEGMENT_SIZE' : int(70), #time window size      252 = 1 fiscal year
             'DATASET_CSV' : "full_df.csv",
             'NUM_FEATURES' : None
         }
         
         self.TRAINING_PARMS = {
             'EPISODES' : 8000,
-            'BATCH_SIZE' : 24,
-            'BUFFER_SIZE' : 50000,
-            'MIN_REPLAY_SIZE' : 45000,
+            'BATCH_SIZE' : 16,
+            'BUFFER_SIZE' : 100000,
+            'MIN_REPLAY_SIZE' : 80000,
             'MIN_LEARNING_RATE' : 0.00001,
             'LEARNING_RATE' : 0.0001,
             'GAMMA' : 0.9997,
@@ -34,16 +34,16 @@ class Config:
             'TECH_DIM' :16,
             'NUM_ASTRO_LAYERS' : 1,
             'NUM_TEMPORAL_LAYERS' : 1,
-            'NUM_TECH_LAYERS' : 1,
+            'NUM_TECH_LAYERS' : 3,
             'EMBED_DIM' : 384,
             'NUM_ASTRO_HEADS' : 12,
-            'NUM_TEMPORAL_HEADS' : 6,
+            'NUM_TEMPORAL_HEADS' : 8,
             'NUM_TECHNICAL_HEADS' : 8
         }
         
         self.MARKET_ENV_PARMS = {
-        'NUM_PROJECTED_DAYS' : 25,
-        'INITIAL_CAPITAL' : 1000.0,
+        'NUM_PROJECTED_DAYS' : 20,
+        'INITIAL_CAPITAL' : 3000.0,
         'SEGMENT_SIZE' : 179, #number of features
         'MAX_HOLD_STEPS' : 28,
         'HOLD_PENALTY' : 0.001,

@@ -258,18 +258,23 @@ class AttentionDQN(nn.Module):
         zero_mask = (x_proc.abs().sum(dim=-1, keepdim=True) == 0)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
+        tech_weights_all = [] 
         # Apply Technical block.
-        x_proc, technical_weights = self.tech_block(x_proc)
-        x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        for _ in range(3):
+            x_proc, w = self.tech_block(x_proc)
+            x_proc = x_proc.masked_fill(zero_mask, 0.0)
+            tech_weights_all.append(w)
         
         # Apply Astro block.
         x_proc, feature_weights = self.astro_block(x_proc)
         x_proc = x_proc.masked_fill(zero_mask, 0.0)
-         
-        # Apply Temporal block.
-        x_proc, temporal_weights = self.temporal_block(x_proc)
-        x_proc = x_proc.masked_fill(zero_mask, 0.0)
         
+        temp_weights_all = [] 
+        # Apply Temporal block.
+        for _ in range(2):
+            x_proc, w = self.temporal_block(x_proc)
+            x_proc = x_proc.masked_fill(zero_mask, 0.0)
+            temp_weights_all.append(w)
         
         # Global average pooling.
         valid_tokens = (~zero_mask)
@@ -283,5 +288,5 @@ class AttentionDQN(nn.Module):
         gate = torch.sigmoid(holding_flag.mean(dim=1))
         q_values = q_values * gate
         
-        return q_values, (technical_weights, temporal_weights, feature_weights)
+        return q_values, (tech_weights_all, temp_weights_all, feature_weights)
 
