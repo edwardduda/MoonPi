@@ -1,297 +1,233 @@
-import torch.nn.functional as F
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-from tqdm import tqdm
-import torch.optim.lr_scheduler as lr_scheduler
-from collections import deque, namedtuple
 import random
-from classes.EpsilonSchedule import EpsilonSchedule
-from classes.DQNLogger import DQNLogger
-from classes.LearningRateScheduler import CosineAnnealingLRScheduler
-from classes.EpisodeLogger import EpisodeLogger
-import gc
+from tqdm import tqdm
 import cProfile
 import pstats
-import logging
-import math
+
+from classes.EpisodeLogger    import EpisodeLogger
+from classes.DQNLogger        import DQNLogger
+from classes.LearningRateScheduler import CosineAnnealingLRScheduler
+from classes.EpsilonSchedule  import EpsilonSchedule
+from classes.ReplayBuffer     import ReplayBuffer
 
 class Training:
     def __init__(self, env, main_model, target_model, config):
-        self.config = config
-        self.episode_logger = EpisodeLogger()
-        self.env=env
-        self.main_model=main_model
-        self.target_model=target_model
-        self.episodes=config.TRAINING_PARMS.get('EPISODES')
-        self.buffer_size=config.TRAINING_PARMS.get('BUFFER_SIZE')
-        self.batch_size=config.TRAINING_PARMS.get('BATCH_SIZE')
-        self.gamma=config.TRAINING_PARMS.get('GAMMA')
-        self.tau=config.TRAINING_PARMS.get('TAU')
-        self.learning_rate=config.TRAINING_PARMS.get('LEARNING_RATE')
-        self.min_replay_size=config.TRAINING_PARMS.get('MIN_REPLAY_SIZE')
-        self.device=config.TRAINING_PARMS.get('DEVICE')
-        self.weight_decay=config.TRAINING_PARMS.get('WEIGHT_DECAY')
-        self.epsilon_start=config.TRAINING_PARMS.get('EPSILON_START')
-        self.epsilon_decay=config.TRAINING_PARMS.get('EPSILON_DECAY')
-        self.epsilon_reset=config.TRAINING_PARMS.get('EPSILON_RESET')
-        self.epsilon_end=config.TRAINING_PARMS.get('EPSILON_END')
-        self.steps_per_episode=config.TRAINING_PARMS.get('STEPS_PER_EPISODE')
-        self.initial_capital =config.MARKET_ENV_PARMS.get('INITIAL_CAPITAL')
-        self.min_lr=config.TRAINING_PARMS.get('MIN_LEARNING_RATE')
-        
-        self.info={
-            'portfolio_value': None,
-            'current_price': None,
-            'initial_capital': None,
-            'q_values': None,
-            'open': None,  # Ensure open price is logged
-            'high': None,  # High price
-            'low': None,    # Low price
-            'close': None, # Close price
-            'date': None,
-            }
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s'
+        # --- Store core components ---
+        self.env          = env
+        self.main_model   = main_model
+        self.target_model = target_model
+        self.config       = config
+
+        # --- Hyperparams from config ---
+        tp = config.TRAINING_PARMS
+        self.episodes        = tp['EPISODES']
+        self.buffer_size     = tp['BUFFER_SIZE']
+        self.batch_size      = tp['BATCH_SIZE']
+        self.gamma           = tp['GAMMA']
+        self.tau             = tp['TAU']
+        self.device          = tp['DEVICE']
+        self.learning_rate   = tp['LEARNING_RATE']
+        self.min_replay_size = tp['MIN_REPLAY_SIZE']
+
+        mp = config.MARKET_ENV_PARMS
+        self.max_trades_per_month = mp['MAX_TRADES_PER_MONTH']
+        # --- Epsilon & LR schedules ---
+        self.epsilon_schedule = EpsilonSchedule(
+            warmup_steps=10,
+            start=tp['EPSILON_START'],
+            end=tp['EPSILON_END'],
+            reset=tp['EPSILON_RESET'],
+            period=tp['STEPS_PER_EPISODE'] * 140,
         )
-        self.logger = DQNLogger(log_dir="/Users/edwardduda/Desktop/MoonPi/runs", scalar_freq=config.DATA_CONFIG.get('SEGMENT_SIZE'), attention_freq=config.DATA_CONFIG.get('SEGMENT_SIZE'), histogram_freq=config.DATA_CONFIG.get('SEGMENT_SIZE'), buffer_size=config.DATA_CONFIG.get('SEGMENT_SIZE') * 2)
-        feature_names = []
-        feature_names = [col for col in env.feature_columns if col not in ["Close", "Open-orig", "High-orig", "Low-orig", "Close-orig", "Ticker"]]
-        feature_names.extend(['Portfolio_Cash', 'Holding_Flag', 'Sharpe_Ratio',
-            'Volatility',
-            'Relative_Strength'])
-        self.logger.feature_names = feature_names
-        # Initialize training components
-        self.replay_buffer = deque(maxlen=self.buffer_size)
-        self.len_replay_buffer = len(self.replay_buffer)
-        self.optimizer = optim.AdamW(self.main_model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        self.optimizer = optim.AdamW(
+            self.main_model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=tp['WEIGHT_DECAY']
+        )
         self.scheduler = CosineAnnealingLRScheduler(
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
-            min_lr=self.min_lr,
-            period= self.steps_per_episode * 140
+            min_lr=tp['MIN_LEARNING_RATE'],
+            period=tp['STEPS_PER_EPISODE'] * 140
         )
-        self.epsilon_schedule = EpsilonSchedule(
-            warmup_steps=min(self.min_replay_size // 10, 2000),
-            start=self.epsilon_start,
-            end=self.epsilon_end,
-            reset=self.epsilon_reset,
-            period=self.steps_per_episode * 140,
-            )
 
-        self.total_steps = 0
+        # --- Replay buffer for 2D states ---
+        state_shape = (env.segment_size, env.state_dim)   # e.g. (70, 179)
+        print(state_shape)
+        self.replay_buffer = ReplayBuffer(state_shape, self.buffer_size)
+
+        # --- Loggers & progress bars ---
+        self.episode_logger = EpisodeLogger()
+        self.logger         = DQNLogger(
+            log_dir="/Users/edwardduda/Desktop/MoonPi/runs",
+            scalar_freq=config.DATA_CONFIG['SEGMENT_SIZE'],
+            attention_freq=config.DATA_CONFIG['SEGMENT_SIZE'],
+            histogram_freq=config.DATA_CONFIG['SEGMENT_SIZE'],
+            buffer_size=config.DATA_CONFIG['SEGMENT_SIZE'] * 2
+        )
+        self.episode_bar     = tqdm(range(self.episodes), desc="Episodes")
+        self.buffer_bar      = tqdm(range(self.min_replay_size), desc="Filling Buffer")
+
+        # --- Internal counters ---
+        self.total_steps   = 0
         self.episodes_done = 0
+         
 
-        self.best_reward = float('-inf')
-        self.episode_reward = 0
-        self.episode_progress_bar = tqdm(range(self.episodes), desc="Training Progress", unit="episode")
-        self.replay_buffer_bar = tqdm(range(self.min_replay_size), desc="Replay Buffer", unit=" segments")
-
-        self.transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'done'))
-        
     def get_current_epsilon(self):
-        # During initial replay-buffer fill we stay at ε_start.
-        if self.len_replay_buffer < self.min_replay_size:
-            return self.epsilon_start
-        # Otherwise just “peek” at the last value the schedule computed.
-        return self.epsilon_schedule.current
-        
+        if len(self.replay_buffer) < self.min_replay_size:
+            return self.epsilon_schedule.start
+        return self.epsilon_schedule.eps
+
+        # --- replace the current version ---
     def training_step(self):
-        #profiler = cProfile.Profile()
-        #profiler.enable()
-        transitions = random.sample(self.replay_buffer, self.batch_size)
-        batch = self.transition(*zip(*transitions))
-
-        state_batch = torch.FloatTensor(np.array(batch.state)).to(self.device)
-        action_batch = torch.LongTensor(batch.action).unsqueeze(1).to(self.device)
-        reward_batch = torch.FloatTensor(batch.reward).unsqueeze(1).to(self.device)
-        next_state_batch = torch.FloatTensor(np.array(batch.next_state)).to(self.device)
-
-        # Get current Q values
-        current_q_values, curr_attention = self.main_model(state_batch)
-        technical_weights, temporal_weights, feature_weights = curr_attention
-        action_q_values = current_q_values.gather(1, action_batch)
         
-        # Calculate target Q values
-        with torch.no_grad():
-            next_q_values, _ = self.main_model(next_state_batch)
-            next_actions = next_q_values.max(1)[1].unsqueeze(1)
-            target_next_q_values, _ = self.target_model(next_state_batch)
-            next_q_values = target_next_q_values.gather(1, next_actions)
-            target_q_values = reward_batch + self.gamma * next_q_values
+        
+        """
+        One DDQN gradient step.
+        Samples a batch from ReplayBuffer, computes Double-DQN targets,
+        back-props, soft-updates the target net, and logs everything.
+        """
+        # ------------------------------------------------------------------
+        # 1) sample (B, 70, 179) + vectors
+        states, actions, rewards, next_states, dones = \
+            self.replay_buffer.sample(self.batch_size)
 
-        # Calculate loss and optimize
-        loss = F.smooth_l1_loss(action_q_values, target_q_values)
+        # 2) → tensors on device
+        s_batch  = torch.as_tensor(states,       device=self.device)        # (B,70,179)
+        ns_batch = torch.as_tensor(next_states,  device=self.device)
+        a_batch  = torch.as_tensor(actions,      device=self.device).unsqueeze(1)  # (B,1)
+        r_batch  = torch.as_tensor(rewards,      device=self.device).unsqueeze(1)  # (B,1)
+        d_batch  = torch.as_tensor(dones.astype(np.float32), device=self.device).unsqueeze(1)
+
+        # ------------------------------------------------------------------
+        # 3) forward pass  (grab all three attention stacks)
+        q_curr, (tech_w, temp_w, astro_w) = self.main_model(s_batch)        # (B,nA)
+        q_a = q_curr.gather(1, a_batch)                                     # (B,1)
+
+        # 4) Double-DQN target
+        with torch.no_grad():
+            q_next_main, _   = self.main_model(ns_batch)
+            next_acts        = q_next_main.argmax(dim=1, keepdim=True)      # (B,1)
+
+            q_next_targ, _   = self.target_model(ns_batch)
+            q_next           = q_next_targ.gather(1, next_acts)             # (B,1)
+            q_next           = q_next * (1.0 - d_batch)                     # zero on terminal
+            target_q         = r_batch + self.gamma * q_next
+
+        # ------------------------------------------------------------------
+        # 5) loss + optimise
+        loss = F.smooth_l1_loss(q_a, target_q)
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), max_norm=1.05)
+        torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), 1.05)
         self.optimizer.step()
-        self.scheduler.step() 
-        
-        # Update target network
-        with torch.no_grad():
-            for target_param, param in zip(self.target_model.parameters(), self.main_model.parameters()):
-                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+        self.scheduler.step()
 
-        #profiler.disable()
-        #stats = pstats.Stats(profiler).sort_stats('cumtime')
-        #stats.print_stats()
-        # Log step data
-        self.episode_logger.log_training_step(
-            state_batch=state_batch,
-            action_batch=action_batch,
-            reward_batch=reward_batch,
-            q_values=current_q_values,
-            loss=loss,
-            time_step=self.total_steps
-        )
+        # ------------------------------------------------------------------
+        # 6) soft-update target net
+        for tgt, src in zip(self.target_model.parameters(), self.main_model.parameters()):
+            tgt.data.copy_(self.tau * src.data + (1.0 - self.tau) * tgt.data)
 
-        # Original logging
-        current_lr = self.scheduler.get_last_lr()[0]
+        # 7) log (stores to buffers — nothing is written to disk yet)
         self.logger.log_training_step(
-            epsilon=self.epsilon_schedule.current,
-            lr=current_lr,
-            reward=torch.mean(reward_batch).item(),
-            loss=loss.item(),
-            main_q_values=current_q_values,
-            target_q_values=target_next_q_values,
-            feature_weights=feature_weights,
-            technical_weights=technical_weights,
-            temporal_weights=temporal_weights
+            epsilon          = self.get_current_epsilon(),
+            lr               = self.scheduler.get_last_lr()[0],
+            reward           = r_batch.mean().item(),
+            loss             = loss.item(),
+            main_q_values    = q_curr,
+            target_q_values  = q_next_targ,
+            temporal_weights = temp_w,
+            feature_weights  = astro_w,      # <-- astrology attention
+            technical_weights= tech_w
         )
 
         self.total_steps += 1
+        self.epsilon_schedule.step()
         
-        if self.len_replay_buffer >= self.min_replay_size:
-            self.epsilon_schedule.step()
+        return loss.item()
+
+    # --- replace the current version ---
+    def take_action(self, state):
+        """
+        ε-greedy action, env.step, + push into replay buffer.
+        Returns (reward, done, next_state) — exactly 3 items.
+        """
         
-    def take_action(self, state, state_tensor):
+        state_tensor = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+        # ε-greedy
         
-        if self.len_replay_buffer < self.min_replay_size or random.random() < self.epsilon_schedule.current:
+        if len(self.replay_buffer) < self.min_replay_size or \
+        random.random() < self.get_current_epsilon():
             action = self.env.action_space.sample()
         else:
             with torch.no_grad():
-                q_values, _ = self.main_model(state_tensor)  # Note: unpack the attention weights
-                action = q_values.max(1)[1].item()
-            
-        next_state, reward, done, self.env.info = self.env.step(action)  # Unpack done flag
-    
-        # Store transition in replay buffer
-        self.replay_buffer.append(self.transition(state, action, reward, next_state, done))
-        self.replay_buffer_bar.update(1)
-    
-        if self.len_replay_buffer == self.min_replay_size:
-            self.replay_buffer_bar.close()
-        
-        return reward, done, next_state  # Return done flag and next_state
-    
-    def episode(self):
-        state = self.env.reset()
-        episode_reward = 0
-        initial_capital = self.initial_capital
-        done = False
-        
-        while not done:
-            #profiler = cProfile.Profile()
-            #profiler.enable()
-            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-            
-            # Get action and Q-values
-            if self.len_replay_buffer < self.min_replay_size or random.random() < self.epsilon_schedule.current:
-                action = self.env.action_space.sample()
-                q_values = [0, 0, 0]  # Default Q-values for random actions
-            else:
-                with torch.no_grad():
-                    q_values_tensor, _ = self.main_model(state_tensor)
-                    q_values = q_values_tensor.detach().cpu().numpy()[0].tolist()
-                    action = q_values_tensor.max(1)[1].item()
-            
-            # Take action and get next state
-            next_state, reward, done, self.env.info = self.env.step(action)
-             # Only log step data if replay buffer is filled
-            
-            if self.len_replay_buffer >= self.min_replay_size:
-                self.info.update({
-                        'portfolio_value': self.env.info['portfolio_value'],
-                        'current_price': self.env.info['current_price'],
-                        'initial_capital': initial_capital,
-                        'q_values': q_values,
-                        'open': self.env.info.get('open'),  # Ensure open price is logged
-                        'high': self.env.info.get('high'),  # High price
-                        'low': self.env.info.get('low'),    # Low price
-                        'close': self.env.info.get('close'), # Close price
-                        'date': self.env.info.get('date'),
-                    })
-                self.episode_logger.log_step(
-                    state=state,
-                    action=action,
-                    reward=reward,
-                    info= self.info
-                )
+                q_vals, _ = self.main_model(state_tensor)  # (1,nA)
+                action    = q_vals.argmax(dim=1).item()
 
-            # Store transition in replay buffer
-            self.replay_buffer.append(self.transition(state, action, reward, next_state, done))
-            
-            # Update progress bar for replay buffer filling
-            if self.len_replay_buffer <= self.min_replay_size:
-                self.replay_buffer_bar.update(1)
-                if self.len_replay_buffer == self.min_replay_size:
-                    self.replay_buffer_bar.close()
-                    print("\nReplay buffer filled, starting training...")
-            
-            if self.len_replay_buffer >= self.min_replay_size:
-                try:
-                    self.training_step()
-                except Exception as e:
-                    print(f'Error, unable to perform training step {e}')
-            
-            episode_reward += reward
-            state = next_state
-            #profiler.disable()
-            #stats = pstats.Stats(profiler).sort_stats('cumtime')
-            #stats.print_stats()
-        # Log episode completion data
-        final_portfolio_value = self.env.portfolio_value
-        self.logger.log_episode_pnl(initial_capital, final_portfolio_value)
-        
-        # Only save episode data if replay buffer is filled
-        if self.len_replay_buffer >= self.min_replay_size:
-            metrics = {
-                'final_portfolio_value': final_portfolio_value,
-                'episode_reward': episode_reward,
-                'epsilon': self.get_current_epsilon(),
-                'replay_buffer_size': self.len_replay_buffer
-            }
-            self.episode_logger.save_training_session(self.episodes_done, metrics)
-            print(f"\nLogged episode {self.episodes_done} (replay buffer ready)")
-        
+        # interact with env
+        next_state, reward, done, _ = self.env.step(action)
+
+        # store transition (states stay 2-D: (70,179))
+        self.replay_buffer.push(state, action, reward, next_state, done)
+
+        # update “filling buffer” bar
+        replay_buffer_len = len(self.replay_buffer)
+        if replay_buffer_len <= self.min_replay_size:
+            self.buffer_bar.update(1)
+            if replay_buffer_len == self.min_replay_size:
+                self.buffer_bar.close()
+                print("Replay buffer filled — starting training!")
+
+        return reward, done, next_state
+
+
+
+    def episode(self):
+        profiler = cProfile.Profile()
+        profiler.enable()
+        state = self.env.reset()
+        done  = False
+        ep_r  = 0.0
+
+        while not done:
+            # only one call: returns 3 values
+            reward, done, state = self.take_action(state)
+
+            # train if buffer ready
+            if len(self.replay_buffer) >= self.min_replay_size:
+                _ = self.training_step()
+
+            ep_r += reward
+
+        # end-of-episode logging
+        final_val = self.env.portfolio_value
+        self.logger.log_episode_pnl(self.env.initial_capital, final_val)
         self.episodes_done += 1
-        if (self.episodes_done % 100 == 0 and self.env.max_trades_per_month > 3):
-            self.env.max_trades_per_month -= 1
-        if self.episodes_done % 2 == 0:
+        profiler.disable()
+        stats = pstats.Stats(profiler).sort_stats("cumtime")
+        stats.print_stats(50)
+        if self.episodes_done % 150 == 0 and self.max_trades_per_month > 3:
+            self.max_trades_per_month -= 1
+        if self.episodes_done % 1 == 0:
             self.logger.flush_to_tensorboard()
-        return episode_reward
-    
-    def train(self, should_exit_flag=None):
-        try:
-            for episode_num in self.episode_progress_bar:
-                # Check if we should exit
-                if should_exit_flag and should_exit_flag():
-                    print("\nExiting training loop...")
-                    break
-                
-                episode_reward = self.episode()
-                
-                # Update progress bar description
-                self.episode_progress_bar.set_description(
-                    f"Episode {episode_num} - Reward: {episode_reward:.2f} - ε: {self.get_current_epsilon():.3f}"
-                )
-            
-            return self.main_model
         
+        return ep_r
+
+    def train(self, should_exit=None):
+        try:
+            for ep in self.episode_bar:
+                if should_exit and should_exit():
+                    print("Early exit requested.")
+                    break
+                ep_reward = self.episode()
+                self.episode_bar.set_description(f"Ep {ep} | R: {ep_reward:.2f} | ε: {self.get_current_epsilon():.3f}")
+            return self.main_model
         except Exception as e:
-            print(f"\nError in training loop: {e}")
+            print("Error in training loop:", e)
             return self.main_model
         finally:
             if hasattr(self, 'logger'):

@@ -11,18 +11,18 @@ class Config:
         self.TRAINING_PARMS = {
             'EPISODES' : 8000,
             'BATCH_SIZE' : 16,
-            'BUFFER_SIZE' : 100000,
-            'MIN_REPLAY_SIZE' : 80000,
+            'BUFFER_SIZE' : 120000,
+            'MIN_REPLAY_SIZE' : 100000,
             'MIN_LEARNING_RATE' : 0.00001,
             'LEARNING_RATE' : 0.0001,
             'GAMMA' : 0.9997,
             'TAU' : 0.06,
-            'DROPOUT_RATE' : 0.12,
+            'DROPOUT_RATE' : 0.15,
             'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
             'EPSILON_START': 1.0,
             'EPSILON_END': 0.25,
             'EPSILON_RESET' : 0.35,
-            'EPSILON_DECAY': 0.99995,
+            'EPSILON_DECAY': 0.999995,
             'WEIGHT_DECAY' : 1e-5,
             'STEPS_PER_EPISODE' : self.DATA_CONFIG.get('SEGMENT_SIZE'),
             'MAX_GRADIENT_CLIP' : 1.4,
@@ -43,10 +43,10 @@ class Config:
         
         self.MARKET_ENV_PARMS = {
         'NUM_PROJECTED_DAYS' : 20,
-        'INITIAL_CAPITAL' : 3000.0,
+        'INITIAL_CAPITAL' : 1000.0,
         'SEGMENT_SIZE' : 179, #number of features
         'MAX_HOLD_STEPS' : 28,
         'HOLD_PENALTY' : 0.001,
         'TRADING_FEE' : 0.05,
-        'MAX_TRADES_PER_MONTH' : 18,
+        'MAX_TRADES_PER_MONTH' : 20,
         }

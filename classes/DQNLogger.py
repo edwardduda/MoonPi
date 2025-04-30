@@ -276,154 +276,94 @@ class DQNLogger:
             plt.ion()
     
     def flush_to_tensorboard(self):
-        # Flush scalars
+        """
+        Dump everything in the offline buffers to TensorBoard, then clear them.
+        """
+        # ------------------------------------------------------------------ scalars
         for metric, entries in self.offline_scalars.items():
             for step, value in entries:
                 self.writer.add_scalar(metric, value, step)
-        
-        # Flush histograms
+
+        # ------------------------------------------------------------------ histograms
         for metric, entries in self.offline_histograms.items():
             for step, data in entries:
                 self.writer.add_histogram(metric, data, step)
-        
-        # Flush attention logs (generate heatmaps)
+
+        # ------------------------------------------------------------------ attention heat-maps
         for log in self.offline_attention:
             step = log['step']
-            # Temporal attention heatmaps
+
+            # -------- temporal --------------
             for layer_idx, avg_weights in enumerate(log['temporal']):
-                temp_weights = avg_weights.cpu().numpy()
-                if len(temp_weights.shape) > 2:
-                    temp_weights = temp_weights.mean(axis=0)
-                elif len(temp_weights.shape) < 2:
+                arr = avg_weights.cpu().numpy()
+                if arr.ndim > 2:   # heads × L × L  ->  avg over heads
+                    arr = arr.mean(axis=0)
+                if arr.ndim < 2:
                     continue
                 fig = plt.figure(figsize=(36, 24))
-                sns.heatmap(temp_weights, cmap='viridis')
-                plt.title(f'Temporal Attention Pattern (Layer {layer_idx + 1})')
-                plt.xlabel('Time Steps')
-                plt.ylabel('Attention Position')
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=120)
-                buf.seek(0)
-                image = Image.open(buf)
-                image = image.resize((1000, 1000))
-                self.writer.add_image(f'attention/temporal_layer_{layer_idx + 1}', 
-                                      np.array(image).transpose(2, 0, 1), 
-                                      step)
-                plt.close(fig)
-                buf.close()
-            # Feature attention heatmaps
+                sns.heatmap(arr, cmap='viridis')
+                plt.title(f'Temporal Attention (Layer {layer_idx+1})')
+                buf = io.BytesIO(); plt.savefig(buf, format='png', dpi=120); buf.seek(0)
+                img = Image.open(buf).resize((1000,1000))
+                self.writer.add_image(f'attention/temporal_layer_{layer_idx+1}',
+                                    np.array(img).transpose(2,0,1), step)
+                plt.close(fig); buf.close()
+
+            # -------- astrology / feature --------------
             for layer_idx, avg_weights in enumerate(log['feature']):
-                feat_weights = avg_weights.cpu().numpy()
-                if len(feat_weights.shape) > 2:
-                    feat_weights = feat_weights.mean(axis=0)
-                elif len(feat_weights.shape) < 2:
+                arr = avg_weights.cpu().numpy()
+                if arr.ndim > 2:
+                    arr = arr.mean(axis=0)
+                if arr.ndim < 2:
                     continue
-                if self.feature_names and feat_weights.shape[0] == len(self.feature_names) - 11:
-                    fig = plt.figure(figsize=(36, 24))
-                    sns.heatmap(feat_weights, cmap='viridis',
-                                xticklabels=self.feature_names,
-                                yticklabels=self.feature_names)
-                    plt.title(f'Feature Attention Pattern (Layer {layer_idx + 1})')
-                    plt.xticks(rotation=45, ha='right')
-                    plt.yticks(rotation=0)
-                    buf = io.BytesIO()
-                    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
-                    buf.seek(0)
-                    image = Image.open(buf)
-                    image = image.resize((1000, 1000))
-                    self.writer.add_image(f'attention/feature_layer_{layer_idx + 1}', 
-                                          np.array(image).transpose(2, 0, 1), 
-                                          step)
-                    plt.close(fig)
-                    buf.close()
-            # Technical attention heatmaps
+                fig = plt.figure(figsize=(36, 24))
+                sns.heatmap(arr, cmap='viridis',
+                            xticklabels=self.feature_names or False,
+                            yticklabels=self.feature_names or False)
+                plt.title(f'Astrology-Feature Attention (Layer {layer_idx+1})')
+                plt.xticks(rotation=45, ha='right')
+                buf = io.BytesIO(); plt.savefig(buf, format='png', dpi=120, bbox_inches='tight'); buf.seek(0)
+                img = Image.open(buf).resize((1000,1000))
+                self.writer.add_image(f'attention/feature_layer_{layer_idx+1}',
+                                    np.array(img).transpose(2,0,1), step)
+                plt.close(fig); buf.close()
+
+            # -------- technical --------------
             for layer_idx, avg_weights in enumerate(log.get('technical', [])):
-                tech_weights = avg_weights.cpu().numpy()
-                if len(tech_weights.shape) > 2:
-                    tech_weights = tech_weights.mean(axis=0)
-                elif len(tech_weights.shape) < 2:
+                arr = avg_weights.cpu().numpy()
+                if arr.ndim > 2:
+                    arr = arr.mean(axis=0)
+                if arr.ndim < 2:
                     continue
                 fig = plt.figure(figsize=(24, 36))
-                sns.heatmap(tech_weights, cmap='viridis')
-                plt.title(f'Technical Attention Pattern (Layer {layer_idx + 1})')
-                plt.xlabel('Token/Feature Index')
-                plt.ylabel('Attention Position')
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', dpi=200)
-                buf.seek(0)
-                image = Image.open(buf)
-                image = image.resize((800, 800))
-                self.writer.add_image(f'attention/technical_layer_{layer_idx + 1}', 
-                                      np.array(image).transpose(2, 0, 1), 
-                                      step)
-                plt.close(fig)
-                buf.close()
-            gc.collect()
-        
-        # Flush episode PnL trend plot
-        if self.episode_pnls:
-            fig = plt.figure(figsize=(24, 36))
-            plt.plot(self.episode_pnls, color='blue', label='PnL %')
-            plt.axhline(y=0, color='r', linestyle='--', alpha=0.3)
-            plt.title('Trading PnL Performance Over Episodes')
-            plt.xlabel('Episodes')
-            plt.ylabel('PnL %')
-            plt.grid(True, alpha=0.3)
-            plt.legend()
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-            buf.seek(0)
-            image = Image.open(buf)
-            image = image.resize((800, 800))
-            self.writer.add_image('performance/pnl_trend', 
-                                np.array(image).transpose(2, 0, 1), 
-                                self.step)
-            plt.close(fig)
-            buf.close()
+                sns.heatmap(arr, cmap='viridis')
+                plt.title(f'Technical Attention (Layer {layer_idx+1})')
+                buf = io.BytesIO(); plt.savefig(buf, format='png', dpi=160); buf.seek(0)
+                img = Image.open(buf).resize((800,800))
+                self.writer.add_image(f'attention/technical_layer_{layer_idx+1}',
+                                    np.array(img).transpose(2,0,1), step)
+                plt.close(fig); buf.close()
 
-        for entry in self.offline_feature_importance_heatmap:
-            step = entry['step']
-            feature_weights = entry['feature_weights']
-            feature_names = entry['feature_names']
-            n_layers = len(feature_weights)
-            layer_importances = []
-            for weights in feature_weights:
-                avg_weights = weights.detach().mean(dim=0).cpu().numpy()
-                importance = avg_weights.mean(axis=0)
-                layer_importances.append(importance)
-            importance_matrix = np.array(layer_importances)
-            avg_importance = importance_matrix.mean(axis=0)
-            top_indices = np.argsort(avg_importance)[-20:]
-            fig = plt.figure(figsize=(36, 24))
-            sns.heatmap(importance_matrix[:, top_indices].T, 
-                        xticklabels=[f'Layer {i+1}' for i in range(n_layers)],
-                        yticklabels=np.array(feature_names)[top_indices],
-                        cmap='viridis', annot=True, fmt='.4f',
-                        cbar_kws={'label': 'Importance Score'})
-            plt.title('Feature Importance Across Layers (Top 20 Features)')
-            plt.tight_layout()
-            plt.xticks(rotation=90, ha='right', fontsize=12)
-            plt.yticks(rotation=0, fontsize=12)
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=160, bbox_inches='tight')
-            buf.seek(0)
-            image = Image.open(buf)
-            image = image.resize((1500, 1500))
-            self.writer.add_image('feature_importance/layer_comparison', 
-                                np.array(image).transpose(2, 0, 1), 
-                                step)
-            plt.close(fig)
-            buf.close()
-        
-        # Optionally flush the reward scalar if there's data in the reward buffer
+            gc.collect()
+
+        # ------------------------------------------------------------------ episode-PnL trend
+        if self.episode_pnls:
+            fig = plt.figure(figsize=(24, 8))
+            plt.plot(self.episode_pnls, color='blue'); plt.axhline(0,color='r',ls='--',alpha=.3)
+            plt.xlabel('Episode'); plt.ylabel('PnL %'); plt.title('PnL over Episodes'); plt.grid(alpha=.3)
+            buf = io.BytesIO(); plt.savefig(buf, format='png', dpi=120, bbox_inches='tight'); buf.seek(0)
+            img = Image.open(buf).resize((1000,400))
+            self.writer.add_image('performance/pnl_trend', np.array(img).transpose(2,0,1), self.step)
+            plt.close(fig); buf.close()
+
+        # optional scalar of latest reward
         if self.reward_buffer:
-            last_reward = np.mean(self.reward_buffer)
-            self.writer.add_scalar('training/reward', last_reward, self.step)
-        
-        # Finally, flush the writer
+            self.writer.add_scalar('training/reward', np.mean(self.reward_buffer), self.step)
+
+        # actually write to disk
         self.writer.flush()
-        
-        # Clear all offline buffers to avoid re-logging the same data
+
+        # ------------------------------------------------------------------ clear buffers
         self.offline_scalars.clear()
         self.offline_histograms.clear()
         self.offline_attention.clear()
@@ -431,6 +371,7 @@ class DQNLogger:
         self.episode_pnls.clear()
         self.offline_feature_importance.clear()
         self.offline_feature_importance_heatmap.clear()
+
     
     def close(self):
         """Cleanup the writer."""

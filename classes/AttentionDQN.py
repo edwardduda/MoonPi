@@ -6,6 +6,44 @@ from classes.Config import Config
 import cProfile
 import pstats
 
+class AttentionChunk(nn.Module):
+    """
+    One TECH → ASTRO → TEMP pipeline with fresh weights.
+    """
+    def __init__(
+        self,
+        embed_dim,
+        num_tech_heads, tech_dim, num_techs,
+        num_astro_heads, astro_dim, num_nontech_feats,
+        num_temporal_heads,
+        dropout,
+    ):
+        super().__init__()
+        self.tech  = TechnicalAttentionBlock(
+            embed_dim, num_tech_heads, dropout, num_techs, tech_dim
+        )
+        self.astro = AstroAttentionBlock(
+            embed_dim, num_astro_heads, dropout, num_nontech_feats, astro_dim
+        )
+        self.temp  = TemporalAttentionBlock(
+            embed_dim, num_temporal_heads, dropout
+        )
+
+    def forward(self, x, zero_mask, w_collector):
+        # TECH
+        x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
+        w_collector["tech"].append(w)
+
+        # ASTRO
+        x, w = self.astro(x); x = x.masked_fill(zero_mask, 0)
+        w_collector["astro"].append(w)
+
+        # TEMP
+        x, w = self.temp(x);  x = x.masked_fill(zero_mask, 0)
+        w_collector["temp"].append(w)
+
+        return x
+    
 class TechnicalAttentionBlock(nn.Module):
     def __init__(self, embed_dim, tech_num_heads, dropout_rate, num_techs, tech_dim):
         super().__init__()
@@ -160,68 +198,55 @@ class TemporalAttentionBlock(nn.Module):
         return x, attention_weights
 
 class AttentionDQN(nn.Module):
-    def __init__(self, state_dim, action_dim, batch_size):
+    def __init__(self, state_dim, action_dim, batch_size, num_chunks=2):
         super().__init__()
-        self.config = Config()
-        self.holding_flag_index = -4
-        self.dropout = self.config.TRAINING_PARMS.get('DROPOUT_RATE')
-        self.state_dim = state_dim  # (seq_len, num_features)
-        self.seq_len, self.num_features = state_dim
+        self.cfg = Config()
+        self.dropout = self.cfg.TRAINING_PARMS["DROPOUT_RATE"]
+        self.seq_len, self.num_feats = state_dim
         self.action_dim = action_dim
-        self.batch_size = batch_size
-        self.num_astro_heads = self.config.ARCHITECTURE_PARMS.get("NUM_ASTRO_HEADS")
-        self.num_temporal_heads = self.config.ARCHITECTURE_PARMS.get("NUM_TEMPORAL_HEADS")
-        self.num_tech_heads = self.config.ARCHITECTURE_PARMS.get("NUM_TECHNICAL_HEADS")
-        self.astro_dim = self.config.ARCHITECTURE_PARMS.get('ASTRO_DIM')
-        self.embed_dim = self.config.ARCHITECTURE_PARMS.get("EMBED_DIM")
-        self.tech_dim = self.config.ARCHITECTURE_PARMS.get('TECH_DIM')
-        # These are still in case you need multiple later:
-        self.num_temporal_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_TEMPORAL_LAYERS")
-        self.num_astro_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_ASTRO_LAYERS")
-        self.num_tech_blocks = self.config.ARCHITECTURE_PARMS.get("NUM_TECH_LAYERS")
-        
-        # Define technical tokens.
-        self.num_tech_total = 11  
-        self.num_tech = self.num_tech_total
-        
-        # Input projection (note the holding flag removal).
-        self.input_projection = nn.Sequential(
-            nn.Linear(self.num_features - 1, self.embed_dim),
-            nn.LayerNorm(self.embed_dim),
-            nn.ReLU()
+        self.holding_flag_idx = -4          # same as before
+
+        # ---- hyperparams from config ---- #
+        hp = self.cfg.ARCHITECTURE_PARMS
+        self.embed_dim      = hp["EMBED_DIM"]
+        self.tech_dim       = hp["TECH_DIM"]
+        self.astro_dim      = hp["ASTRO_DIM"]
+        self.h_tech         = hp["NUM_TECHNICAL_HEADS"]
+        self.h_astro        = hp["NUM_ASTRO_HEADS"]
+        self.h_temp         = hp["NUM_TEMPORAL_HEADS"]
+        self.n_tech         = 11                                # number of tech tokens
+        self.n_nontech      = self.num_feats - self.n_tech       # astro feats
+
+        # ---- input projection + PE ---- #
+        self.input_proj = nn.Sequential(
+            nn.Linear(self.num_feats - 1, self.embed_dim),
+            nn.LayerNorm(self.embed_dim), nn.ReLU()
         )
-        
-        # Positional encoding.
-        self.register_buffer('pos_encoding', self._get_sinusoidal_encoding(self.seq_len, self.embed_dim))
-        self.pos_dropout = nn.Dropout(self.dropout)
-        
-        # Instead of ModuleList, create one block each.
-        self.astro_block = AstroAttentionBlock(
-            self.embed_dim, self.num_astro_heads, self.dropout,
-            self.num_features - self.num_tech_total, self.astro_dim
+        self.register_buffer(
+            "pos_enc", self._get_sinusoidal_encoding(self.seq_len, self.embed_dim)
         )
-        self.tech_block = TechnicalAttentionBlock(
-            self.embed_dim, self.num_tech_heads, self.dropout,
-            self.num_tech, self.config.ARCHITECTURE_PARMS.get("TECH_DIM")
-        )
-        self.temporal_block = TemporalAttentionBlock(
-            self.embed_dim, self.num_temporal_heads, self.dropout
+        self.pos_drop = nn.Dropout(self.dropout)
+
+        # ---- CHUNKS ---- #
+        self.chunks = nn.ModuleList([
+            AttentionChunk(
+                self.embed_dim,
+                self.h_tech,  self.tech_dim,  self.n_tech,
+                self.h_astro, self.astro_dim, self.n_nontech,
+                self.h_temp,
+                self.dropout,
+            ) for _ in range(num_chunks)
+        ])
+
+        # ---- head ---- #
+        self.final_norm = nn.LayerNorm(self.embed_dim)
+        self.q_head = nn.Sequential(
+            nn.Linear(self.embed_dim, self.embed_dim*8), nn.ReLU(), nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim*8, self.embed_dim*4), nn.ReLU(), nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim*4, self.embed_dim*2), nn.ReLU(), nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim*2, action_dim)
         )
 
-        self.final_norm = nn.LayerNorm(self.embed_dim)
-        
-        self.q_values = nn.Sequential(
-            nn.Linear(self.embed_dim, self.embed_dim * 8),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.embed_dim * 8, self.embed_dim * 4),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.embed_dim * 4, self.embed_dim * 2),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.embed_dim * 2, action_dim)
-        )
         self._init_weights()
     
     def _get_sinusoidal_encoding(self, seq_len, d_model):
@@ -239,54 +264,314 @@ class AttentionDQN(nn.Module):
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
     
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math
+from classes.Config import Config
+import cProfile
+import pstats
+
+class AttentionChunk(nn.Module):
+    """
+    One TECH → ASTRO → TEMP pipeline with fresh weights.
+    """
+    def __init__(
+        self,
+        embed_dim,
+        num_tech_heads, tech_dim, num_techs,
+        num_astro_heads, astro_dim, num_nontech_feats,
+        num_temporal_heads,
+        dropout,
+    ):
+        super().__init__()
+        self.tech  = TechnicalAttentionBlock(
+            embed_dim, num_tech_heads, dropout, num_techs, tech_dim
+        )
+        self.astro = AstroAttentionBlock(
+            embed_dim, num_astro_heads, dropout, num_nontech_feats, astro_dim
+        )
+        self.temp  = TemporalAttentionBlock(
+            embed_dim, num_temporal_heads, dropout
+        )
+
+    def forward(self, x, zero_mask, w_collector):
+        # TECH
+        x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
+        w_collector["tech"].append(w)
+
+        # ASTRO
+        x, w = self.astro(x); x = x.masked_fill(zero_mask, 0)
+        w_collector["astro"].append(w)
+
+        # TEMP
+        x, w = self.temp(x);  x = x.masked_fill(zero_mask, 0)
+        w_collector["temp"].append(w)
+
+        return x
+    
+class TechnicalAttentionBlock(nn.Module):
+    def __init__(self, embed_dim, tech_num_heads, dropout_rate, num_techs, tech_dim):
+        super().__init__()
+        self.tech_dim = tech_dim
+        self.num_techs = num_techs
+        
+        self.proj = nn.Linear(embed_dim, self.num_techs * self.tech_dim)
+        
+        # Multihead attention that operates over the feature tokens.
+        self.attention = nn.MultiheadAttention(
+            embed_dim=self.tech_dim,
+            num_heads=tech_num_heads,
+            dropout=dropout_rate,
+            batch_first=True  # We'll be working with (batch, tokens, tech_dim)
+        )
+        
+        # A simple feed-forward network applied on each feature token.
+        self.ffn = nn.Sequential(
+            nn.Linear(self.tech_dim, self.tech_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(self.tech_dim * 4, self.tech_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(self.tech_dim * 2, self.tech_dim)
+        )
+        
+        self.layer_norm1 = nn.LayerNorm(self.tech_dim)
+        self.layer_norm2 = nn.LayerNorm(self.tech_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self.out_proj = nn.Linear(self.num_techs * self.tech_dim, embed_dim)
+        
     def forward(self, x):
+        batch, seq_len, _ = x.size()
         
-        batch, seq_len, num_features = x.shape
-        if (seq_len, num_features) != self.state_dim:
-            raise ValueError(f"Expected state dimensions {self.state_dim} but got ({seq_len}, {num_features})")
+        # Project input: shape becomes (batch, seq_len, num_techs * tech_dim)
+        x_proj = self.proj(x)
         
-        # 1. Separate the holding flag.
-        holding_flag = x[:, :, self.holding_flag_index].unsqueeze(-1)
-        # 2. Remove the holding flag.
-        x_proc = torch.cat([x[:, :, :self.holding_flag_index], x[:, :, self.holding_flag_index+1:]], dim=-1)
+        # Reshape to have a token for each feature:
+        # New shape: (batch * seq_len, num_techs, tech_dim)
+        x_feat = x_proj.view(batch * seq_len, self.num_techs, self.tech_dim)
+
+        # Create a key padding mask.
+        key_padding_mask = (x_feat.abs().sum(dim=-1) < 1e-6)
         
-        # 3. Input projection and add positional encoding.
-        x_proc = self.input_projection(x_proc)
-        x_proc = x_proc + self.pos_dropout(self.pos_encoding[:, :seq_len, :])
+        # Pass the mask to the multihead attention module.
+        attn_output, attn_weights = self.attention(
+            x_feat, x_feat, x_feat, key_padding_mask=key_padding_mask
+        )
         
-        # Create a mask for any padded tokens.
-        zero_mask = (x_proc.abs().sum(dim=-1, keepdim=True) == 0)
-        x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        # Residual connection + layer norm.
+        x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
         
-        tech_weights_all = [] 
-        # Apply Technical block.
-        for _ in range(3):
-            x_proc, w = self.tech_block(x_proc)
-            x_proc = x_proc.masked_fill(zero_mask, 0.0)
-            tech_weights_all.append(w)
+        # Feed-forward network on each feature token.
+        ffn_output = self.ffn(x_feat).half().float()
+        x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
         
-        # Apply Astro block.
-        x_proc, feature_weights = self.astro_block(x_proc)
-        x_proc = x_proc.masked_fill(zero_mask, 0.0)
+        # Reshape back to (batch, seq_len, num_techs * tech_dim)
+        out = x_feat.view(batch, seq_len, self.num_techs * self.tech_dim)
         
-        temp_weights_all = [] 
-        # Apply Temporal block.
-        for _ in range(2):
-            x_proc, w = self.temporal_block(x_proc)
-            x_proc = x_proc.masked_fill(zero_mask, 0.0)
-            temp_weights_all.append(w)
+        # Project back to the original embedding dimension.
+        out = self.out_proj(out)
         
-        # Global average pooling.
-        valid_tokens = (~zero_mask)
-        x_proc = (x_proc * valid_tokens).sum(dim=1) / (valid_tokens.sum(dim=1) + 1e-8)
+        return out, attn_weights
+
+class AstroAttentionBlock(nn.Module):
+    def __init__(self, embed_dim, num_astro_heads, dropout_rate, num_features, feature_dim):
+        super().__init__()
+        self.num_features = num_features 
+        self.astro_feature_dim = feature_dim
+
+        self.proj = nn.Linear(embed_dim, num_features * self.astro_feature_dim)
         
-        # Final normalization and Q-value projection.
-        x_proc = self.final_norm(x_proc)
-        q_values = self.q_values(x_proc).half().float()
+        # Multihead attention that operates over the feature tokens.
+        self.attention = nn.MultiheadAttention(
+            embed_dim=self.astro_feature_dim,
+            num_heads=num_astro_heads,
+            dropout=dropout_rate,
+            batch_first=True  # We'll be working with (batch, tokens, feature_dim)
+        )
         
-        # Gate the final Q-values with the holding flag.
-        gate = torch.sigmoid(holding_flag.mean(dim=1))
-        q_values = q_values * gate
+        # A simple feed-forward network applied on each feature token.
+        self.ffn = nn.Sequential(
+            nn.Linear(self.astro_feature_dim, self.astro_feature_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(self.astro_feature_dim * 4, self.astro_feature_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(self.astro_feature_dim * 2, self.astro_feature_dim)
+        )
         
-        return q_values, (tech_weights_all, temp_weights_all, feature_weights)
+        # Layer norms for residual connections.
+        self.layer_norm1 = nn.LayerNorm(self.astro_feature_dim)
+        self.layer_norm2 = nn.LayerNorm(self.astro_feature_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        
+        self.out_proj = nn.Linear(self.num_features * self.astro_feature_dim, embed_dim)
+        
+    def forward(self, x):
+        batch, seq_len, _ = x.size()
+        
+        x_proj = self.proj(x)
+        x_feat = x_proj.view(batch * seq_len, self.num_features, self.astro_feature_dim)
+        
+        key_padding_mask = (x_feat.abs().sum(dim=-1) < 1e-6)
+        
+        attn_output, attn_weights = self.attention(
+            x_feat, x_feat, x_feat, key_padding_mask=key_padding_mask
+        )
+        
+        x_feat = self.layer_norm1(x_feat + self.dropout(attn_output))
+        ffn_output = self.ffn(x_feat).half().float()
+        x_feat = self.layer_norm2(x_feat + self.dropout(ffn_output))
+        
+        out = x_feat.view(batch, seq_len, self.num_features * self.astro_feature_dim)
+        out = self.out_proj(out)
+        
+        return out, attn_weights
+
+class TemporalAttentionBlock(nn.Module):
+    def __init__(self, embed_dim, num_temporal_heads, dropout_rate):
+        super().__init__()
+        self.attention = nn.MultiheadAttention(
+            embed_dim=embed_dim,
+            num_heads=num_temporal_heads,
+            dropout=dropout_rate,
+            batch_first=True
+        )
+        self.layer_norm1 = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 4),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 4, embed_dim * 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim * 2, embed_dim)
+        )
+        
+    def forward(self, x):
+        normed_x = self.layer_norm1(x)
+        attention_output, attention_weights = self.attention(normed_x, normed_x, normed_x)
+        
+        x = x + self.dropout(attention_output)
+        normed_x = self.layer_norm1(x)
+        ffn_output = self.ffn(normed_x).half().float()
+        x = x + self.dropout(ffn_output)
+        
+        return x, attention_weights
+
+class AttentionDQN(nn.Module):
+    def __init__(self, state_dim, action_dim, batch_size, num_chunks=2):
+        super().__init__()
+        self.cfg = Config()
+        self.dropout = self.cfg.TRAINING_PARMS["DROPOUT_RATE"]
+        self.seq_len, self.num_feats = state_dim
+        self.action_dim = action_dim
+        self.holding_flag_idx = -4          # same as before
+
+        # ---- hyperparams from config ---- #
+        hp = self.cfg.ARCHITECTURE_PARMS
+        self.embed_dim      = hp["EMBED_DIM"]
+        self.tech_dim       = hp["TECH_DIM"]
+        self.astro_dim      = hp["ASTRO_DIM"]
+        self.h_tech         = hp["NUM_TECHNICAL_HEADS"]
+        self.h_astro        = hp["NUM_ASTRO_HEADS"]
+        self.h_temp         = hp["NUM_TEMPORAL_HEADS"]
+        self.n_tech         = 11                                # number of tech tokens
+        self.n_nontech      = self.num_feats - self.n_tech       # astro feats
+
+        # ---- input projection + PE ---- #
+        self.input_proj = nn.Sequential(
+            nn.Linear(self.num_feats - 1, self.embed_dim),
+            nn.LayerNorm(self.embed_dim), nn.ReLU()
+        )
+        self.register_buffer(
+            "pos_enc", self._get_sinusoidal_encoding(self.seq_len, self.embed_dim)
+        )
+        self.pos_drop = nn.Dropout(self.dropout)
+
+        # ---- CHUNKS ---- #
+        self.chunks = nn.ModuleList([
+            AttentionChunk(
+                self.embed_dim,
+                self.h_tech,  self.tech_dim,  self.n_tech,
+                self.h_astro, self.astro_dim, self.n_nontech,
+                self.h_temp,
+                self.dropout,
+            ) for _ in range(num_chunks)
+        ])
+
+        # ---- head ---- #
+        self.final_norm = nn.LayerNorm(self.embed_dim)
+        self.q_head = nn.Sequential(
+            nn.Linear(self.embed_dim, self.embed_dim*8),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim*8, self.embed_dim*4),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim*4, self.embed_dim*2),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.embed_dim*2, action_dim)
+        )
+
+        self._init_weights()
+        
+        print(f"[INFO] Model initialized with {sum(p.numel() for p in self.parameters()):,} parameters")
+    
+    def _get_sinusoidal_encoding(self, seq_len, d_model):
+        position = torch.arange(seq_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pos_encoding = torch.zeros(1, seq_len, d_model)
+        pos_encoding[0, :, 0::2] = torch.sin(position * div_term)
+        pos_encoding[0, :, 1::2] = torch.cos(position * div_term)
+        return pos_encoding
+    
+    def _init_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+    
+    def forward(self, x):
+        B, L, F = x.shape
+        assert (L, F) == (self.seq_len, self.num_feats)
+
+        # split out holding flag & project
+        hold_flag = x[:, :, self.holding_flag_idx].unsqueeze(-1)
+        x = torch.cat([x[:, :, :self.holding_flag_idx],
+                       x[:, :, self.holding_flag_idx+1:]], dim=-1)
+        x = self.input_proj(x) + self.pos_drop(self.pos_enc[:, :L, :])
+
+        zero_mask = (x.abs().sum(-1, keepdim=True) == 0)
+
+        # collect attn weights
+        w_collector = {"tech": [], "astro": [], "temp": []}
+
+        # run through chunks
+        for chunk in self.chunks:
+            x = chunk(x, zero_mask, w_collector)
+
+        # pool → head → q-values
+        valid = ~zero_mask
+        x = (x * valid).sum(1) / (valid.sum(1) + 1e-8)
+        x = self.final_norm(x)
+        q = self.q_head(x).half().float()
+
+        # gate by holding flag (unchanged)
+        gate = torch.sigmoid(hold_flag.mean(1))
+        q = q * gate
+        
+        tech_weights_all = w_collector["tech"]
+        astro_weights_all = w_collector["astro"]
+        temp_weights_all = w_collector["temp"]
+        
+        return q, (tech_weights_all, temp_weights_all, astro_weights_all)
+
+
 

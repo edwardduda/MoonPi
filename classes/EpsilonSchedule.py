@@ -1,4 +1,13 @@
 import math
+from numba import jit
+import numpy as np
+
+@jit(nopython=True, cache=True)
+def step(t, warmup, period, end, eps):
+    tp    = (t - warmup) % period
+    phase = (2 * math.pi * tp) / period
+    eps   = end + (eps - end) * 0.5 * (1 + math.cos(phase))
+    return eps
 
 class EpsilonSchedule:
     """
@@ -9,26 +18,28 @@ class EpsilonSchedule:
     • period       : length of one cosine cycle after warm-up  
     """
     def __init__(self, warmup_steps, start, end, reset, period):
-        self.warmup   = warmup_steps
+        self.warmup_steps   = warmup_steps
         self.start    = start
         self.end      = end
         self.reset    = reset
         self.period   = period
-        self._counter = 0
-
+        self.counter = 0
+        self.eps = 1.0
+        self.phase = None
         # last computed value (so we can “peek” without advancing)
-        self.current  = start
+        
+    
+    def step(self):
 
-    def step(self) -> float:
-        """Advance the schedule by one step and return ε_t."""
-        t = self._counter
-        if t < self.warmup:
-            eps = self.start
+        while self.counter < self.warmup_steps:
+            self.eps = self.start
+            self.counter += 1
+        if self.eps > self.reset:
+            
+            self.eps = step(self.counter, self.warmup_steps, self.period, self.end, self.eps)
         else:
-            # shift so t' = 0 right after warm-up
-            tp    = (t - self.warmup) % self.period
-            phase = (math.pi * tp) / self.period       # 0 → π
-            eps   = self.end + (self.reset - self.end) * 0.5 * (1 + math.cos(phase))
-        self._counter += 1
-        self.current   = eps
-        return eps
+            self.eps = step(self.counter, self.warmup_steps, self.period, self.end, self.reset)
+
+        self.counter += 1
+
+        return self.eps

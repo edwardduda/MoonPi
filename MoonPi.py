@@ -7,9 +7,10 @@ from classes.MarketEnv import MarketEnv
 from classes.AttentionDQN import AttentionDQN
 from classes.Config import Config
 from classes.Training import Training
+import torch._dynamo
 
 # Global flag for graceful shutdown
-should_exit = False
+#should_exit = False
 
 def check_state_dimensions(env, model, device):
     # Reset the environment to get an initial state.
@@ -36,16 +37,21 @@ def check_state_dimensions(env, model, device):
     # If q_values shape is (1, action_dim) then everything looks good.
     
 def initialize_models(state_dim, action_dim, config):
-    print('made')
+    device = config.TRAINING_PARMS.get("DEVICE")  # e.g. "mps"
+    
     main_model = AttentionDQN(
-        state_dim= state_dim,
-        action_dim= action_dim,
+        state_dim=state_dim,
+        action_dim=action_dim,
         batch_size=config.TRAINING_PARMS.get("BATCH_SIZE"),
-        ).to(config.TRAINING_PARMS.get("DEVICE"))
-    print('successful made')
-    target_model = copy.deepcopy(main_model).to(config.TRAINING_PARMS.get("DEVICE"))
-    target_model.eval() 
+    ).to(device)
 
+    backends = torch._dynamo.list_backends()  
+    print(backends)
+    main_model = torch.compile(main_model, backend="eager")
+    
+    target_model = copy.deepcopy(main_model).to(device)
+    target_model.eval()
+    
     return main_model, target_model
     
 def load_df(config):
@@ -99,8 +105,8 @@ def main():
     
         print("\nStarting training...")
     
-        trained_model = training_module.train(should_exit_flag=lambda: should_exit)
-
+        trained_model = training_module.train()
+        '''
         if not should_exit:
             
         # Save the trained model
@@ -117,7 +123,7 @@ def main():
         }, 'trained_attention_dqn.pth')
 
         print("\nTraining complete! Model saved!")
-
+        '''
     except Exception as e:
         print(f"\nAn error occurred: {e}")
 
