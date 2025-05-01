@@ -299,11 +299,9 @@ class AttentionChunk(nn.Module):
         # TECH
         x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
         w_collector["tech"].append(w)
-
         # ASTRO
         x, w = self.astro(x); x = x.masked_fill(zero_mask, 0)
         w_collector["astro"].append(w)
-
         # TEMP
         x, w = self.temp(x);  x = x.masked_fill(zero_mask, 0)
         w_collector["temp"].append(w)
@@ -392,7 +390,6 @@ class AstroAttentionBlock(nn.Module):
             batch_first=True  # We'll be working with (batch, tokens, feature_dim)
         )
         
-        # A simple feed-forward network applied on each feature token.
         self.ffn = nn.Sequential(
             nn.Linear(self.astro_feature_dim, self.astro_feature_dim * 4),
             nn.ReLU(),
@@ -486,7 +483,7 @@ class AttentionDQN(nn.Module):
         # ---- input projection + PE ---- #
         self.input_proj = nn.Sequential(
             nn.Linear(self.num_feats - 1, self.embed_dim),
-            nn.LayerNorm(self.embed_dim), nn.ReLU()
+            nn.LayerNorm(self.embed_dim)
         )
         self.register_buffer(
             "pos_enc", self._get_sinusoidal_encoding(self.seq_len, self.embed_dim)

@@ -15,13 +15,11 @@ from classes.ReplayBuffer     import ReplayBuffer
 
 class Training:
     def __init__(self, env, main_model, target_model, config):
-        # --- Store core components ---
         self.env          = env
         self.main_model   = main_model
         self.target_model = target_model
         self.config       = config
 
-        # --- Hyperparams from config ---
         tp = config.TRAINING_PARMS
         self.episodes        = tp['EPISODES']
         self.buffer_size     = tp['BUFFER_SIZE']
@@ -34,13 +32,12 @@ class Training:
 
         mp = config.MARKET_ENV_PARMS
         self.max_trades_per_month = mp['MAX_TRADES_PER_MONTH']
-        # --- Epsilon & LR schedules ---
         self.epsilon_schedule = EpsilonSchedule(
             warmup_steps=10,
             start=tp['EPSILON_START'],
             end=tp['EPSILON_END'],
             reset=tp['EPSILON_RESET'],
-            period=tp['STEPS_PER_EPISODE'] * 140,
+            period=tp['STEPS_PER_EPISODE'] * 60,
         )
         self.optimizer = optim.AdamW(
             self.main_model.parameters(),
@@ -51,15 +48,13 @@ class Training:
             optimizer=self.optimizer,
             initial_lr=self.learning_rate,
             min_lr=tp['MIN_LEARNING_RATE'],
-            period=tp['STEPS_PER_EPISODE'] * 140
+            period=tp['STEPS_PER_EPISODE'] * 40
         )
 
-        # --- Replay buffer for 2D states ---
         state_shape = (env.segment_size, env.state_dim)   # e.g. (70, 179)
         print(state_shape)
         self.replay_buffer = ReplayBuffer(state_shape, self.buffer_size)
 
-        # --- Loggers & progress bars ---
         self.episode_logger = EpisodeLogger()
         self.logger         = DQNLogger(
             log_dir="/Users/edwardduda/Desktop/MoonPi/runs",
@@ -71,7 +66,6 @@ class Training:
         self.episode_bar     = tqdm(range(self.episodes), desc="Episodes")
         self.buffer_bar      = tqdm(range(self.min_replay_size), desc="Filling Buffer")
 
-        # --- Internal counters ---
         self.total_steps   = 0
         self.episodes_done = 0
          
@@ -81,33 +75,20 @@ class Training:
             return self.epsilon_schedule.start
         return self.epsilon_schedule.eps
 
-        # --- replace the current version ---
     def training_step(self):
-        
-        
-        """
-        One DDQN gradient step.
-        Samples a batch from ReplayBuffer, computes Double-DQN targets,
-        back-props, soft-updates the target net, and logs everything.
-        """
-        # ------------------------------------------------------------------
-        # 1) sample (B, 70, 179) + vectors
+
         states, actions, rewards, next_states, dones = \
             self.replay_buffer.sample(self.batch_size)
 
-        # 2) → tensors on device
         s_batch  = torch.as_tensor(states,       device=self.device)        # (B,70,179)
         ns_batch = torch.as_tensor(next_states,  device=self.device)
         a_batch  = torch.as_tensor(actions,      device=self.device).unsqueeze(1)  # (B,1)
         r_batch  = torch.as_tensor(rewards,      device=self.device).unsqueeze(1)  # (B,1)
         d_batch  = torch.as_tensor(dones.astype(np.float32), device=self.device).unsqueeze(1)
 
-        # ------------------------------------------------------------------
-        # 3) forward pass  (grab all three attention stacks)
         q_curr, (tech_w, temp_w, astro_w) = self.main_model(s_batch)        # (B,nA)
         q_a = q_curr.gather(1, a_batch)                                     # (B,1)
-
-        # 4) Double-DQN target
+        
         with torch.no_grad():
             q_next_main, _   = self.main_model(ns_batch)
             next_acts        = q_next_main.argmax(dim=1, keepdim=True)      # (B,1)
@@ -117,8 +98,6 @@ class Training:
             q_next           = q_next * (1.0 - d_batch)                     # zero on terminal
             target_q         = r_batch + self.gamma * q_next
 
-        # ------------------------------------------------------------------
-        # 5) loss + optimise
         loss = F.smooth_l1_loss(q_a, target_q)
         self.optimizer.zero_grad()
         loss.backward()
@@ -126,12 +105,9 @@ class Training:
         self.optimizer.step()
         self.scheduler.step()
 
-        # ------------------------------------------------------------------
-        # 6) soft-update target net
         for tgt, src in zip(self.target_model.parameters(), self.main_model.parameters()):
             tgt.data.copy_(self.tau * src.data + (1.0 - self.tau) * tgt.data)
 
-        # 7) log (stores to buffers — nothing is written to disk yet)
         self.logger.log_training_step(
             epsilon          = self.get_current_epsilon(),
             lr               = self.scheduler.get_last_lr()[0],
@@ -149,17 +125,10 @@ class Training:
         
         return loss.item()
 
-    # --- replace the current version ---
     def take_action(self, state):
-        """
-        ε-greedy action, env.step, + push into replay buffer.
-        Returns (reward, done, next_state) — exactly 3 items.
-        """
-        
+
         state_tensor = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
 
-        # ε-greedy
-        
         if len(self.replay_buffer) < self.min_replay_size or \
         random.random() < self.get_current_epsilon():
             action = self.env.action_space.sample()
@@ -168,13 +137,10 @@ class Training:
                 q_vals, _ = self.main_model(state_tensor)  # (1,nA)
                 action    = q_vals.argmax(dim=1).item()
 
-        # interact with env
         next_state, reward, done, _ = self.env.step(action)
 
-        # store transition (states stay 2-D: (70,179))
         self.replay_buffer.push(state, action, reward, next_state, done)
 
-        # update “filling buffer” bar
         replay_buffer_len = len(self.replay_buffer)
         if replay_buffer_len <= self.min_replay_size:
             self.buffer_bar.update(1)
@@ -184,35 +150,30 @@ class Training:
 
         return reward, done, next_state
 
-
-
     def episode(self):
-        profiler = cProfile.Profile()
-        profiler.enable()
+        #profiler = cProfile.Profile()
+        #profiler.enable()
         state = self.env.reset()
         done  = False
         ep_r  = 0.0
 
         while not done:
-            # only one call: returns 3 values
             reward, done, state = self.take_action(state)
 
-            # train if buffer ready
             if len(self.replay_buffer) >= self.min_replay_size:
                 _ = self.training_step()
 
             ep_r += reward
 
-        # end-of-episode logging
         final_val = self.env.portfolio_value
         self.logger.log_episode_pnl(self.env.initial_capital, final_val)
         self.episodes_done += 1
-        profiler.disable()
-        stats = pstats.Stats(profiler).sort_stats("cumtime")
-        stats.print_stats(50)
+        #profiler.disable()
+        #stats = pstats.Stats(profiler).sort_stats("cumtime")
+        #stats.print_stats(50)
         if self.episodes_done % 150 == 0 and self.max_trades_per_month > 3:
             self.max_trades_per_month -= 1
-        if self.episodes_done % 1 == 0:
+        if self.episodes_done % 10 == 0:
             self.logger.flush_to_tensorboard()
         
         return ep_r

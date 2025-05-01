@@ -30,13 +30,13 @@ class Config:
         }
         
         self.ARCHITECTURE_PARMS = {
-            'ASTRO_DIM' :24,
-            'TECH_DIM' :16,
+            'ASTRO_DIM' :64,
+            'TECH_DIM' :32,
             'NUM_ASTRO_LAYERS' : 1,
             'NUM_TEMPORAL_LAYERS' : 1,
             'NUM_TECH_LAYERS' : 3,
             'EMBED_DIM' : 384,
-            'NUM_ASTRO_HEADS' : 12,
+            'NUM_ASTRO_HEADS' : 16,
             'NUM_TEMPORAL_HEADS' : 8,
             'NUM_TECHNICAL_HEADS' : 8
         }

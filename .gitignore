@@ -33,3 +33,5 @@ classes/sample_dataset.csv
 classes/weathertestset.csv
 classes/test.py
 classes/MarketEnvCpp/include/rapidcsv.h
+/cpptesting
+/build
