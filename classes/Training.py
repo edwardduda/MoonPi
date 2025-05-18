@@ -6,6 +6,7 @@ import random
 from tqdm import tqdm
 import cProfile
 import pstats
+import gc
 
 from classes.EpisodeLogger    import EpisodeLogger
 from classes.DQNLogger        import DQNLogger
@@ -76,57 +77,111 @@ class Training:
         return self.epsilon_schedule.eps
 
     def training_step(self):
-
+        # Configure microbatches
+        micro_batch_size = 1
+        num_micro_batches = self.batch_size // micro_batch_size
+        
+        # Sample full batch
         states, actions, rewards, next_states, dones = \
             self.replay_buffer.sample(self.batch_size)
-
-        s_batch  = torch.as_tensor(states,       device=self.device)        # (B,70,179)
-        ns_batch = torch.as_tensor(next_states,  device=self.device)
-        a_batch  = torch.as_tensor(actions,      device=self.device).unsqueeze(1)  # (B,1)
-        r_batch  = torch.as_tensor(rewards,      device=self.device).unsqueeze(1)  # (B,1)
-        d_batch  = torch.as_tensor(dones.astype(np.float32), device=self.device).unsqueeze(1)
-
-        q_curr, (tech_w, temp_w, astro_w) = self.main_model(s_batch)        # (B,nA)
-        q_a = q_curr.gather(1, a_batch)                                     # (B,1)
         
-        with torch.no_grad():
-            q_next_main, _   = self.main_model(ns_batch)
-            next_acts        = q_next_main.argmax(dim=1, keepdim=True)      # (B,1)
-
-            q_next_targ, _   = self.target_model(ns_batch)
-            q_next           = q_next_targ.gather(1, next_acts)             # (B,1)
-            q_next           = q_next * (1.0 - d_batch)                     # zero on terminal
-            target_q         = r_batch + self.gamma * q_next
-
-        loss = F.smooth_l1_loss(q_a, target_q)
         self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), 1.05)
+        total_loss = 0.0
+        
+        # Save last attention weights for logging
+        saved_weights = None
+        # Save Q-values for logging
+        saved_q_curr = None
+        saved_q_targ = None
+        
+        for i in range(num_micro_batches):
+            # Calculate indices
+            start_idx = i * micro_batch_size
+            end_idx = start_idx + micro_batch_size
+            
+            # Create tensors for this microbatch only
+            with torch.no_grad():  # No need to track history for tensor creation
+                s_batch = torch.as_tensor(states[start_idx:end_idx], device=self.device)
+                ns_batch = torch.as_tensor(next_states[start_idx:end_idx], device=self.device)
+                a_batch = torch.as_tensor(actions[start_idx:end_idx], device=self.device).unsqueeze(1)
+                r_batch = torch.as_tensor(rewards[start_idx:end_idx], device=self.device).unsqueeze(1)
+                d_batch = torch.as_tensor(dones[start_idx:end_idx].astype(np.float32), device=self.device).unsqueeze(1)
+            
+            # Forward pass
+            q_curr, weights = self.main_model(s_batch)
+            tech_w, temp_w, astro_w = weights
+            saved_weights = (tech_w, temp_w, astro_w)  # Save for logging
+            
+            # Save Q-values from the last batch for logging
+            if i == num_micro_batches - 1:
+                saved_q_curr = q_curr.detach().clone()
+            
+            q_a = q_curr.gather(1, a_batch)
+            
+            # Target calculation
+            with torch.no_grad():
+                q_next_main, _ = self.main_model(ns_batch)
+                next_acts = q_next_main.argmax(dim=1, keepdim=True)
+                
+                q_next_targ, _ = self.target_model(ns_batch)
+                
+                # Save target Q-values from the last batch for logging
+                if i == num_micro_batches - 1:
+                    saved_q_targ = q_next_targ.detach().clone()
+                    
+                q_next = q_next_targ.gather(1, next_acts)
+                q_next = q_next * (1.0 - d_batch)
+                target_q = r_batch + self.gamma * q_next
+            
+            # Scaled loss
+            loss = F.smooth_l1_loss(q_a, target_q) / num_micro_batches
+            
+            # Accumulate loss value for logging (as a float, not tensor)
+            total_loss += loss.item() * num_micro_batches
+            
+            # Backward
+            loss.backward()
+            
+            # Critical: aggressively clear memory
+            del s_batch, ns_batch, a_batch, r_batch, d_batch
+            del q_curr, q_a, q_next_main, next_acts, q_next_targ, q_next, target_q, loss
+            
+            # Force garbage collection
+            gc.collect()
+            
+            # Clear MPS cache
+            if hasattr(torch.mps, 'empty_cache'):
+                torch.mps.empty_cache()
+        
+        # Apply gradients
+        torch.nn.utils.clip_grad_norm_(self.main_model.parameters(), 1.0)
         self.optimizer.step()
         self.scheduler.step()
-
+        
+        # Target network update
         for tgt, src in zip(self.target_model.parameters(), self.main_model.parameters()):
             tgt.data.copy_(self.tau * src.data + (1.0 - self.tau) * tgt.data)
+        print(f"Training step {self.total_steps}: Q-values logged - main mean: {saved_q_curr.mean().item():.4f}, target mean: {saved_q_targ.mean().item():.4f}")
 
+        # Log using saved info - now with actual Q-values
         self.logger.log_training_step(
-            epsilon          = self.get_current_epsilon(),
-            lr               = self.scheduler.get_last_lr()[0],
-            reward           = r_batch.mean().item(),
-            loss             = loss.item(),
-            main_q_values    = q_curr,
-            target_q_values  = q_next_targ,
-            temporal_weights = temp_w,
-            feature_weights  = astro_w,      # <-- astrology attention
-            technical_weights= tech_w
+            epsilon=self.get_current_epsilon(),
+            lr=self.scheduler.get_last_lr()[0],
+            reward=np.mean(rewards),  # Use numpy mean on original array
+            loss=total_loss,
+            main_q_values=saved_q_curr,  # Now passing actual Q-values
+            target_q_values=saved_q_targ,  # Now passing actual target Q-values
+            temporal_weights=saved_weights[1],
+            feature_weights=saved_weights[2],
+            technical_weights=saved_weights[0]
         )
-
+        
         self.total_steps += 1
         self.epsilon_schedule.step()
         
-        return loss.item()
+        return total_loss
 
     def take_action(self, state):
-
         state_tensor = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         if len(self.replay_buffer) < self.min_replay_size or \
@@ -137,7 +192,10 @@ class Training:
                 q_vals, _ = self.main_model(state_tensor)  # (1,nA)
                 action    = q_vals.argmax(dim=1).item()
 
-        next_state, reward, done, _ = self.env.step(action)
+        next_state, reward, done, info = self.env.step(action)
+        
+        # Add this line to log each step
+        self.episode_logger.log_step(state, action, reward, info)
 
         self.replay_buffer.push(state, action, reward, next_state, done)
 
@@ -161,19 +219,31 @@ class Training:
             reward, done, state = self.take_action(state)
 
             if len(self.replay_buffer) >= self.min_replay_size:
-                _ = self.training_step()
+                loss = self.training_step()
+                
+                # Optionally log the training step if you want detailed metrics
+                if len(self.replay_buffer) >= self.min_replay_size:
+                    # Get latest batches from training
+                    states, actions, rewards, _, _ = self.replay_buffer.sample(self.batch_size)
+                    q_values, _ = self.main_model(torch.tensor(states, device=self.device))
+                    self.episode_logger.log_training_step(states, actions, rewards, q_values, loss, self.total_steps)
 
             ep_r += reward
 
         final_val = self.env.portfolio_value
         self.logger.log_episode_pnl(self.env.initial_capital, final_val)
         self.episodes_done += 1
-        #profiler.disable()
-        #stats = pstats.Stats(profiler).sort_stats("cumtime")
-        #stats.print_stats(50)
-        if self.episodes_done % 150 == 0 and self.max_trades_per_month > 3:
-            self.max_trades_per_month -= 1
-        if self.episodes_done % 10 == 0:
+        
+        # Add this line to save the episode data
+        model_metrics = {
+            "epsilon": self.get_current_epsilon(),
+            "learning_rate": self.scheduler.get_last_lr()[0],
+            "final_portfolio_value": final_val,
+            "initial_capital": self.env.initial_capital
+        }
+        self.episode_logger.save_training_session(self.episodes_done, model_metrics)
+        
+        if self.episodes_done % 1 == 0:
             self.logger.flush_to_tensorboard()
         
         return ep_r

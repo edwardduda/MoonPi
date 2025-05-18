@@ -45,10 +45,13 @@ class EpisodeLogger:
             'high': info.get('high', 0),  # Log high price
             'low': info.get('low', 0),    # Log low price
             'close': info.get('close', 0), # Log close price
-            'date' : info.get('date', None),
+            'date': info.get('date', None),
             'sharpe_ratio': info.get('sharpe_ratio', 0),
             'volatility': info.get('volatility', 0),
-            'relative_strength': info.get('relative_strength', 0)
+            'relative_strength': info.get('relative_strength', 0),
+            'portfolioValue': portfolio_value,  # Add this line to match what save_episode expects
+            'reward': float(reward),  # Add this line to match what get_episode_summary expects
+            'action': int(action)  # Add this line to match what get_episode_summary expects 
         }
         
         self.episode_data.append(step_data)
