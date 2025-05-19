@@ -20,7 +20,6 @@ cpptesting/sample_dataset.csv
 cpptesting/Makefile
 cpptesting/src/rapidcsvtest.cpp
 classes/MarketEnvCpp/setup.py
-.gitignore
 classes/MarketEnvCpp/MarketEnvCpp.egg-info/dependency_links.txt
 classes/MarketEnvCpp/MarketEnvCpp.egg-info/not-zip-safe
 classes/MarketEnvCpp/MarketEnvCpp.egg-info/PKG-INFO
@@ -36,3 +35,4 @@ classes/MarketEnvCpp/include/rapidcsv.h
 /cpptesting
 /build
 sig.png
+/tests

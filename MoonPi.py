@@ -7,10 +7,6 @@ from classes.MarketEnv import MarketEnv
 from classes.AttentionDQN import AttentionDQN
 from classes.Config import Config
 from classes.Training import Training
-import torch._dynamo
-
-# Global flag for graceful shutdown
-#should_exit = False
 
 def check_state_dimensions(env, model, device):
     # Reset the environment to get an initial state.
@@ -45,8 +41,6 @@ def initialize_models(state_dim, action_dim, config):
         batch_size=config.TRAINING_PARMS.get("BATCH_SIZE"),
     ).to(device)
 
-    backends = torch._dynamo.list_backends()  
-    print(backends)
     main_model = torch.compile(main_model, backend="eager")
     
     target_model = copy.deepcopy(main_model).to(device)

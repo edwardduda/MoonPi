@@ -11,7 +11,7 @@ class CosineAnnealingLRScheduler(_LRScheduler):
 
     def get_lr(self):
         t       = self.last_epoch % self.period
-        cosine  = 0.5 * (1 + math.cos(2.0 * math.pi * t / self.period))
+        cosine  = 0.5 * (1 + math.sin((2.0 * math.pi * t / self.period)) + math.pi)
         return [
             self.min_lr + (self.base_max_lr - self.min_lr) * cosine
             for _ in self.optimizer.param_groups

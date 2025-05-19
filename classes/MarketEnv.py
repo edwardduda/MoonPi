@@ -5,37 +5,7 @@ from typing import Tuple
 import cProfile
 import pstats
 from classes.CircularBuffer import CircularBuffer
-'''
-@jit(nopython=True, cache=True)
-def step(action,
-         buy,
-         volatility,
-         cash,
-         portfolio_value,
-         orig_close,
-         trading_fee,
-         trades_per_month,
-         max_trades_per_month,
-         holding):
-    sum_vol = 1+volatility
-    reward_val = 0.0
-    
-    if(action == 1):
-        if holding == False:
-            holding = True
-            cash -= (orig_close + trading_fee)
-            trades_per_month += 1
-            cost_pct = trading_fee / portfolio_value
-            reward_val = -cost_pct
-        else:
-            if cash < (orig_close + trading_fee):
-                reward_val = -2.5*sum_vol
-            elif trades_per_month >= max_trades_per_month:
-                reward_val = -1.5*sum_vol
-            else:
-                reward_val = -3.5*sum_vol
-'''
-         
+     
 @jit(nopython=True, cache=True)
 def normalize_reward(reward):
     if abs(reward) > 1:
@@ -298,7 +268,7 @@ class MarketEnv:
         # finalize
         self.portfolio_value = self.cash + orig_close*float(self.holding)
         self.reward_val      = normalize_reward(self.reward_val)
-        self.reward_val      = np.clip(0.0 if np.isnan(self.reward_val) else self.reward_val, -10.0, 15.0)
+        self.reward_val      = np.clip(0.0 if np.isnan(self.reward_val) else self.reward_val, -1.0, 10.0)
         self.current_step   += 1
 
         next_state = self.get_state()

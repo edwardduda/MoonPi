@@ -33,34 +33,37 @@ class AttentionChunk(nn.Module):
         self.temp  = TemporalAttentionBlock(
             embed_dim, num_temporal_heads, dropout
         )
-        
-        if self.block_type == "tech":
-            self.tech  = TechnicalAttentionBlock(
-            embed_dim, num_tech_heads * self.multiplier, dropout, num_techs, tech_dim * self.multiplier
-            )
-        
-        if self.block_type == "astro":
-            self.astro = AstroAttentionBlock(
-            embed_dim, num_astro_heads  * self.multiplier, dropout, num_nontech_feats, astro_dim * self.multiplier
-        )
-            
-        if self.block_type == "temp":
-            self.temp  = TemporalAttentionBlock(
-            embed_dim, num_temporal_heads * self.multiplier, dropout
-        )
-        
+                
     def forward(self, x, zero_mask, w_collector):
         # TECH
-        x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
-        w_collector["tech"].append(w)
+        if self.block_type == "tech":
+            x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
+            w_collector["tech"].append(w)
+            
+            x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
+            w_collector["tech"].append(w)
+            
+            x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
+            w_collector["tech"].append(w)
+            
+            x, w = self.tech(x);  x = x.masked_fill(zero_mask, 0)
+            w_collector["tech"].append(w)
+            return x
         # ASTRO
-        x, w = self.astro(x); x = x.masked_fill(zero_mask, 0)
-        w_collector["astro"].append(w)
+        if self.block_type == "astro":
+            x, w = self.astro(x); x = x.masked_fill(zero_mask, 0)
+            w_collector["astro"].append(w)
+            
+            x, w = self.astro(x); x = x.masked_fill(zero_mask, 0)
+            w_collector["astro"].append(w)
+            
+            return x
         # TEMP
-        x, w = self.temp(x);  x = x.masked_fill(zero_mask, 0)
-        w_collector["temp"].append(w)
+        if self.block_type == "temp":
+            x, w = self.temp(x);  x = x.masked_fill(zero_mask, 0)
+            w_collector["temp"].append(w)
 
-        return x
+            return x
     
 class TechnicalAttentionBlock(nn.Module):
     def __init__(self, embed_dim, tech_num_heads, dropout_rate, num_techs, tech_dim):
@@ -80,13 +83,13 @@ class TechnicalAttentionBlock(nn.Module):
         
         # A simple feed-forward network applied on each feature token.
         self.ffn = nn.Sequential(
-            nn.Linear(self.tech_dim, self.tech_dim * 2),
+            nn.Linear(self.tech_dim, self.tech_dim * 4),
             nn.SiLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(self.tech_dim * 2, self.tech_dim * 4),
+            nn.Linear(self.tech_dim * 4, self.tech_dim * 2),
             nn.SiLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(self.tech_dim * 4, self.tech_dim)
+            nn.Linear(self.tech_dim * 2, self.tech_dim)
         )
         
         self.layer_norm1 = nn.LayerNorm(self.tech_dim)

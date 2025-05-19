@@ -70,7 +70,6 @@ class Training:
         self.total_steps   = 0
         self.episodes_done = 0
          
-
     def get_current_epsilon(self):
         if len(self.replay_buffer) < self.min_replay_size:
             return self.epsilon_schedule.start
@@ -78,7 +77,7 @@ class Training:
 
     def training_step(self):
         # Configure microbatches
-        micro_batch_size = 1
+        micro_batch_size = 4
         num_micro_batches = self.batch_size // micro_batch_size
         
         # Sample full batch

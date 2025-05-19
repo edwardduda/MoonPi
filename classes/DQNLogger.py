@@ -12,8 +12,6 @@ import scipy
 from numba import jit
 from classes.CircularBuffer import CircularBuffer
 
-# JIT-compiled function for mean and standard deviation calculation
-# More efficient than native NumPy operations for our use case
 @jit(nopython=True, cache=True)
 def running_mean_std(vals):
     acc, acc2 = 0.0, 0.0
@@ -25,10 +23,8 @@ def running_mean_std(vals):
     std  = (acc2 / n - mean ** 2) ** 0.5
     return mean, std
 
-# Helper function for calculating mean of CircularBuffer values
 @jit(nopython=True, cache=True)
 def circular_mean(buffer, head, is_full):
-    # Calculate mean based on active elements in the buffer
     if is_full:
         return np.mean(buffer)
     elif head > 0:
@@ -46,14 +42,10 @@ class DQNLogger:
         self.histogram_freq = histogram_freq
         self.buffer_size = buffer_size
 
-        # Buffers for online averaging - using CircularBuffer instead of deque
-        # CircularBuffer is more memory efficient and utilizes JIT for faster operations
         self.reward_buffer = CircularBuffer(buffer_size)  # 1D buffer for scalar rewards
         self.loss_buffer = CircularBuffer(buffer_size)    # 1D buffer for scalar losses
         self.pnl_history = CircularBuffer(100)            # 1D buffer with size 100 (matches original deque maxlen)
         
-        # Q-value buffers using CircularBuffer
-        # Using Python dict to match original structure while benefiting from CircularBuffer internally
         self.q_value_buffer = {
             'main': CircularBuffer(buffer_size),
             'target': CircularBuffer(buffer_size)
@@ -223,7 +215,6 @@ class DQNLogger:
             if loss is not None:
                 self.loss_buffer.insert(loss)
             
-            # FIXED: Always log Q-values directly when available, regardless of other conditions
             with torch.no_grad():
                 if main_q_values is not None:
                     q_mean = main_q_values.mean().item()
@@ -242,43 +233,27 @@ class DQNLogger:
                     self.q_values_logged = True
             
             if self.step % self.scalar_freq == 0:
-                # Check if buffers have data using buffer.head or buffer.is_full attributes
-                has_reward_data = self.reward_buffer.head > 0 or self.reward_buffer.is_full
-                has_loss_data = self.loss_buffer.head > 0 or self.loss_buffer.is_full
-                
-                # Debug: Print buffer status
-                logging.info(f"Step {self.step}: Reward data: {has_reward_data}, Loss data: {has_loss_data}")
-                
-                if has_reward_data and has_loss_data:
-                    # Get ordered data from CircularBuffer for calculations
-                    reward_array = self.reward_buffer.get_ordered()
-                    loss_array = self.loss_buffer.get_ordered()
-                    
-                    # Calculate statistics
-                    r_mean, r_std = running_mean_std(reward_array)
-                    
+                has_r = self.reward_buffer.head > 0 or self.reward_buffer.is_full
+                has_l = self.loss_buffer.head > 0 or self.loss_buffer.is_full
+
+                if has_r and has_l:
+                    rewards = self.reward_buffer.get_ordered()
+                    losses  = self.loss_buffer.get_ordered()
+                    r_mean, r_std = running_mean_std(rewards)
                     metrics = {
-                        'training/reward': r_mean,
-                        'training/loss': np.mean(loss_array),
-                        'training/reward_std': r_std if len(reward_array) > 1 else 0,
-                        'training/loss_std': np.std(loss_array) if len(loss_array) > 1 else 0,
-                        'training/epsilon': epsilon,
-                        'training/lr': lr
+                        'training/reward':      r_mean,
+                        'training/loss':        np.mean(losses),
+                        'training/reward_std':  r_std if len(rewards)>1 else 0,
+                        'training/loss_std':    np.std(losses) if len(losses)>1 else 0,
+                        'training/epsilon':     epsilon,
+                        'training/lr':          lr
                     }
-                    
-                    # Add Q-value means if data exists - ORIGINAL CODE
-                    if self.q_value_buffer['main'].head > 0 or self.q_value_buffer['main'].is_full:
-                        main_q_array = self.q_value_buffer['main'].get_ordered()
-                        q_mean = np.mean(main_q_array)
-                        metrics['q_values/main_mean'] = q_mean
-                        logging.info(f"Added main Q-value mean to metrics: {q_mean}")
-                    
-                    if self.q_value_buffer['target'].head > 0 or self.q_value_buffer['target'].is_full:
-                        target_q_array = self.q_value_buffer['target'].get_ordered()
-                        q_mean = np.mean(target_q_array)
-                        metrics['q_values/target_mean'] = q_mean
-                        logging.info(f"Added target Q-value mean to metrics: {q_mean}")
-                    
+                    # add Q-value means if exist
+                    if self.q_value_buffer['main'].head>0 or self.q_value_buffer['main'].is_full:
+                        metrics['q_values/main_mean'] = np.mean(self.q_value_buffer['main'].get_ordered())
+                    if self.q_value_buffer['target'].head>0 or self.q_value_buffer['target'].is_full:
+                        metrics['q_values/target_mean'] = np.mean(self.q_value_buffer['target'].get_ordered())
+
                     self.log_metrics(metrics)
             
             if self.step % self.histogram_freq == 0:
@@ -339,9 +314,6 @@ class DQNLogger:
             plt.ion()
     
     def log_feature_importance_heatmap(self, feature_weights, feature_names):
-        """
-        Save raw feature weights and names for later heatmap generation.
-        """
         plt.ioff()
         try:
             self.offline_feature_importance_heatmap.append({
@@ -355,21 +327,22 @@ class DQNLogger:
             plt.ion()
     
     def flush_to_tensorboard(self):
-        """
-        Dump everything in the offline buffers to TensorBoard, then clear them.
-        """
-        # Debug message
         logging.info(f"Flushing to TensorBoard at step {self.step}")
         
-        # ------------------------------------------------------------------ scalars
-        scalar_count = 0
+        # scalars
         for metric, entries in self.offline_scalars.items():
-            for step, value in entries:
-                self.writer.add_scalar(metric, value, step)
-                scalar_count += 1
+            for step, val in entries:
+                self.writer.add_scalar(metric, val, step)
                 if 'q_values' in metric:
                     self.q_values_logged = True
-                    logging.info(f"Logged Q-value metric to TensorBoard: {metric}={value} at step {step}")
+
+        # force-log current reward & loss from buffers
+        if self.reward_buffer.head > 0 or self.reward_buffer.is_full:
+            r_arr = self.reward_buffer.get_ordered()
+            self.writer.add_scalar('training/reward', np.mean(r_arr), self.step)
+        if self.loss_buffer.head > 0 or self.loss_buffer.is_full:
+            l_arr = self.loss_buffer.get_ordered()
+            self.writer.add_scalar('training/loss', np.mean(l_arr), self.step)
 
         # ------------------------------------------------------------------ histograms
         histogram_count = 0
@@ -472,7 +445,7 @@ class DQNLogger:
         self.writer.flush()
         
         # Debug summary
-        logging.info(f"Flush complete. Wrote {scalar_count} scalars and {histogram_count} histograms to TensorBoard.")
+        logging.info(f"Flush complete. Wrote scalars and {histogram_count} histograms to TensorBoard.")
 
         # ------------------------------------------------------------------ clear buffers
         self.offline_scalars.clear()

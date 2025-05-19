@@ -3,23 +3,23 @@ import torch
 class Config:
     def __init__(self):
         self.DATA_CONFIG = {
-            'SEGMENT_SIZE' : int(60), #time window size      252 = 1 fiscal year
+            'SEGMENT_SIZE' : int(90), #time window size      252 = 1 fiscal year
             'DATASET_CSV' : "full_df.csv",
             'NUM_FEATURES' : None
         }
         
         self.TRAINING_PARMS = {
             'EPISODES' : 8000,
-            'BATCH_SIZE' : 16,
+            'BATCH_SIZE' : 24,
             'BUFFER_SIZE' : 100000,
-            'MIN_REPLAY_SIZE' : 60000,
+            'MIN_REPLAY_SIZE' : 40000,
             'MIN_LEARNING_RATE' : 0.00008,
             'LEARNING_RATE' : 0.0001,
             'GAMMA' : 0.98,
             'TAU' : 0.05,
             'DROPOUT_RATE' : 0.12,
             'DEVICE' : "mps" if torch.mps.is_available() else 'cpu',
-            'EPSILON_START': 1.0,
+            'EPSILON_START': 0.9,
             'EPSILON_END': 0.25,
             'EPSILON_RESET' : 0.37,
             'EPSILON_DECAY': 0.999995,
@@ -30,13 +30,13 @@ class Config:
         }
         
         self.ARCHITECTURE_PARMS = {
-            'ASTRO_DIM' :16,
-            'TECH_DIM' :16,
+            'ASTRO_DIM' : 64,
+            'TECH_DIM' : 32,
             'NUM_ASTRO_LAYERS' : 1,
             'NUM_TEMPORAL_LAYERS' : 1,
             'NUM_TECH_LAYERS' : 1,
             'EMBED_DIM' : 256,
-            'NUM_ASTRO_HEADS' : 4,
+            'NUM_ASTRO_HEADS' : 8,
             'NUM_TEMPORAL_HEADS' : 32,
             'NUM_TECHNICAL_HEADS' : 4
         }
